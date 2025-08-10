@@ -10,8 +10,31 @@ import (
 
 // Message is what gets delivered to a notification service.
 type Message struct {
-	Title string
-	Body  string
+	Title    string
+	Body     string
+	Priority Priority
+}
+
+// Priority is how urgently a message should be delivered. Each sink maps
+// it onto whatever its service supports.
+type Priority int
+
+const (
+	Low    Priority = -1
+	Normal Priority = 0
+	High   Priority = 1
+)
+
+func parsePriority(s string) (Priority, error) {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "low":
+		return Low, nil
+	case "", "normal":
+		return Normal, nil
+	case "high":
+		return High, nil
+	}
+	return Normal, fmt.Errorf("invalid priority %q (want low, normal or high)", s)
 }
 
 // readMessage returns the message to send: the arguments joined with

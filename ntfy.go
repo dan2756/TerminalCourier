@@ -16,9 +16,10 @@ type Ntfy struct {
 }
 
 type ntfyMessage struct {
-	Topic   string `json:"topic"`
-	Message string `json:"message"`
-	Title   string `json:"title,omitempty"`
+	Topic    string `json:"topic"`
+	Message  string `json:"message"`
+	Title    string `json:"title,omitempty"`
+	Priority int    `json:"priority,omitempty"`
 }
 
 func (n *Ntfy) Name() string { return "ntfy" }
@@ -30,6 +31,23 @@ func (n *Ntfy) Send(ctx context.Context, m Message) error {
 	if n.Token != "" {
 		header.Set("Authorization", "Bearer "+n.Token)
 	}
-	msg := ntfyMessage{Topic: n.Topic, Message: m.Body, Title: m.Title}
+	msg := ntfyMessage{
+		Topic:    n.Topic,
+		Message:  m.Body,
+		Title:    m.Title,
+		Priority: ntfyPriority(m.Priority),
+	}
 	return postJSON(ctx, strings.TrimRight(n.Server, "/")+"/", header, msg)
+}
+
+// ntfyPriority maps onto ntfy's scale of 1 (min) to 5 (max). Zero is
+// left out of the request, so the server uses its default of 3.
+func ntfyPriority(p Priority) int {
+	switch p {
+	case Low:
+		return 2
+	case High:
+		return 4
+	}
+	return 0
 }

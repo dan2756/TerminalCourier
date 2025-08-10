@@ -20,6 +20,9 @@ var configKeys = []string{
 	"ntfy_server",
 	"ntfy_topic",
 	"ntfy_token",
+	"pushover_token",
+	"pushover_user",
+	"pushover_url",
 	"slack_webhook",
 	"discord_webhook",
 }

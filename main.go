@@ -21,14 +21,16 @@ const timeout = 10 * time.Second
 
 const usage = `Usage: notify [flags] [message...]
 
-Send a message to Slack, Discord or your phone (via ntfy). The message is
-taken from the arguments, or read from stdin when there are none:
+Send a message to your phone (via ntfy or Pushover), Slack or Discord.
+The message is taken from the arguments, or read from stdin when there
+are none:
 
   notify build finished
   make 2>&1 | tail -5 | notify --slack
 
 Sinks:
       --ntfy         push to an ntfy topic
+      --pushover     push through Pushover
       --slack        post to a Slack incoming webhook
       --discord      post to a Discord webhook
       --to LIST      comma-separated sinks, e.g. --to slack,discord
@@ -38,6 +40,7 @@ else every configured sink.
 
 Flags:
   -t, --title TEXT    notification title
+  -p, --priority P    low, normal (default) or high
   -c, --config FILE   config file (default ~/.config/notify/config)
   -h, --help          show this help
       --version       print the version and exit
@@ -50,6 +53,8 @@ in the environment as NOTIFY_<KEY>, which overrides the file:
   ntfy_topic        ntfy topic to publish to
   ntfy_server       ntfy server (default https://ntfy.sh)
   ntfy_token        ntfy access token, for protected topics
+  pushover_token    Pushover application API token
+  pushover_user     Pushover user or group key
   slack_webhook     Slack incoming webhook URL
   discord_webhook   Discord webhook URL
 
@@ -66,6 +71,7 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer, getenv func(s
 	fs.SetOutput(io.Discard)
 	var (
 		title       string
+		priority    string
 		to          string
 		configPath  string
 		showVersion bool
@@ -73,6 +79,8 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer, getenv func(s
 	)
 	fs.StringVar(&title, "t", "", "")
 	fs.StringVar(&title, "title", "", "")
+	fs.StringVar(&priority, "p", "", "")
+	fs.StringVar(&priority, "priority", "", "")
 	fs.StringVar(&to, "to", "", "")
 	fs.StringVar(&configPath, "c", "", "")
 	fs.StringVar(&configPath, "config", "", "")
@@ -91,6 +99,12 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer, getenv func(s
 	if showVersion {
 		fmt.Fprintln(stdout, "notify", versionString())
 		return 0
+	}
+
+	prio, err := parsePriority(priority)
+	if err != nil {
+		fmt.Fprintf(stderr, "notify: %v\n", err)
+		return 2
 	}
 
 	explicit := configPath != ""
@@ -124,7 +138,8 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer, getenv func(s
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	code := 0
-	for i, err := range sendAll(ctx, sinks, Message{Title: title, Body: body}) {
+	msg := Message{Title: title, Body: body, Priority: prio}
+	for i, err := range sendAll(ctx, sinks, msg) {
 		if err != nil {
 			fmt.Fprintf(stderr, "notify: %s: %v\n", sinks[i].Name(), err)
 			code = 1

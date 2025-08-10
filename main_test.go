@@ -179,6 +179,8 @@ func TestRunSinkErrors(t *testing.T) {
 		{[]string{"--ntfy", "hi"}, "ntfy is not configured: set NOTIFY_NTFY_TOPIC or ntfy_topic in the config file"},
 		{[]string{"--to", "sms", "hi"}, `unknown sink "sms"`},
 		{[]string{"hi"}, "no sinks configured"},
+		{[]string{"--pushover", "hi"}, "pushover is not configured: set NOTIFY_PUSHOVER_TOKEN"},
+		{[]string{"-p", "urgent", "hi"}, `invalid priority "urgent"`},
 	}
 	for _, tt := range tests {
 		var stdout, stderr bytes.Buffer

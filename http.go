@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 )
 
@@ -25,15 +26,15 @@ func (e *httpError) Error() string {
 	return fmt.Sprintf("HTTP %s: %s", e.Status, e.Detail)
 }
 
-// postJSON POSTs v as JSON to url with any extra headers.
-func postJSON(ctx context.Context, url string, header http.Header, v any) error {
+// postJSON POSTs v as JSON to endpoint with any extra headers.
+func postJSON(ctx context.Context, endpoint string, header http.Header, v any) error {
 	var buf bytes.Buffer
 	enc := json.NewEncoder(&buf)
 	enc.SetEscapeHTML(false)
 	if err := enc.Encode(v); err != nil {
 		return err
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, &buf)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, &buf)
 	if err != nil {
 		return err
 	}
@@ -41,6 +42,16 @@ func postJSON(ctx context.Context, url string, header http.Header, v any) error 
 		req.Header[k] = vs
 	}
 	req.Header.Set("Content-Type", "application/json")
+	return do(req)
+}
+
+// postForm POSTs form to endpoint, URL-encoded.
+func postForm(ctx context.Context, endpoint string, form url.Values) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, strings.NewReader(form.Encode()))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	return do(req)
 }
 
@@ -60,16 +71,19 @@ func do(req *http.Request) error {
 }
 
 // errorDetail pulls a short, single-line reason out of an error response.
-// JSON bodies from Discord ("message") and ntfy ("error") are reduced to
-// their reason; anything else is used as is.
+// JSON bodies from Pushover ("errors"), Discord ("message") and ntfy
+// ("error") are reduced to their reason; anything else is used as is.
 func errorDetail(body []byte) string {
 	var v struct {
-		Message string `json:"message"`
-		Error   string `json:"error"`
+		Errors  []string `json:"errors"`
+		Message string   `json:"message"`
+		Error   string   `json:"error"`
 	}
 	// Unmarshal fills what it can even when other fields don't match.
 	_ = json.Unmarshal(body, &v)
 	switch {
+	case len(v.Errors) > 0:
+		return strings.Join(v.Errors, "; ")
 	case v.Message != "":
 		return v.Message
 	case v.Error != "":

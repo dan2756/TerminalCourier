@@ -1,6 +1,6 @@
 # notify
 
-Send stdin (or a few words) to Slack, Discord or your phone when a long
+Send stdin (or a few words) to your phone, Slack or Discord when a long
 command finishes.
 
 ```sh
@@ -33,6 +33,9 @@ discord_webhook = https://discord.com/api/webhooks/1234/abcd
 | `ntfy_topic` | ntfy topic to publish to |
 | `ntfy_server` | ntfy server, default `https://ntfy.sh` |
 | `ntfy_token` | ntfy access token, for protected topics |
+| `pushover_token` | Pushover application API token |
+| `pushover_user` | Pushover user or group key |
+| `pushover_url` | Pushover API endpoint, default `https://api.pushover.net/1/messages.json` |
 | `slack_webhook` | Slack [incoming webhook](https://api.slack.com/messaging/webhooks) URL |
 | `discord_webhook` | Discord webhook URL (channel settings, Integrations, Webhooks) |
 
@@ -59,11 +62,21 @@ sink. Sinks are sent to at once; one failing doesn't stop the others.
 
 | Flag | |
 | --- | --- |
-| `--ntfy`, `--slack`, `--discord` | send to that sink |
+| `--ntfy`, `--pushover`, `--slack`, `--discord` | send to that sink |
 | `--to LIST` | comma-separated sinks |
 | `-t`, `--title TEXT` | notification title |
+| `-p`, `--priority P` | `low`, `normal` (default) or `high` |
 | `-c`, `--config FILE` | read this config file instead |
 | `--version` | print the version |
+
+### Priority
+
+| | low | high |
+| --- | --- | --- |
+| ntfy | priority 2 (no sound) | priority 4 (long vibration, pop-over) |
+| Pushover | -1 (quiet) | 1 (bypasses quiet hours) |
+| Discord | posted without a notification | - |
+| Slack | - | - |
 
 ## Exit status
 

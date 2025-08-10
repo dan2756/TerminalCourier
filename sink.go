@@ -16,15 +16,16 @@ type Sink interface {
 }
 
 // sinkNames lists every sink in the order they are reported.
-var sinkNames = []string{"ntfy", "slack", "discord"}
+var sinkNames = []string{"ntfy", "pushover", "slack", "discord"}
 
 // sinkKeys are the settings each sink needs. A sink counts as configured
 // when any of them is set, so a half-finished setup is reported rather
 // than silently skipped.
 var sinkKeys = map[string][]string{
-	"ntfy":    {"ntfy_topic"},
-	"slack":   {"slack_webhook"},
-	"discord": {"discord_webhook"},
+	"ntfy":     {"ntfy_topic"},
+	"pushover": {"pushover_token", "pushover_user"},
+	"slack":    {"slack_webhook"},
+	"discord":  {"discord_webhook"},
 }
 
 func (c config) configured(name string) bool {
@@ -50,6 +51,12 @@ func (c config) newSink(name string) (Sink, error) {
 			server = defaultNtfyServer
 		}
 		return &Ntfy{Server: server, Topic: c["ntfy_topic"], Token: c["ntfy_token"]}, nil
+	case "pushover":
+		endpoint := c["pushover_url"]
+		if endpoint == "" {
+			endpoint = defaultPushoverURL
+		}
+		return &Pushover{Token: c["pushover_token"], User: c["pushover_user"], URL: endpoint}, nil
 	case "slack":
 		return &Slack{Webhook: c["slack_webhook"]}, nil
 	case "discord":
