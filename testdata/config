@@ -1,0 +1,10 @@
+# notify configuration
+
+; sinks used when none are picked on the command line
+default = slack, ntfy   # work laptop
+
+ntfy_topic = builds-7f3a
+NTFY_SERVER=https://ntfy.example.com
+
+slack_webhook = "https://hooks.slack.com/services/T000/B000/XXXX#frag"
+discord_webhook = 'https://discord.com/api/webhooks/1/abc' # personal server

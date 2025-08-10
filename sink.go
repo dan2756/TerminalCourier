@@ -40,7 +40,7 @@ func (c config) configured(name string) bool {
 func (c config) newSink(name string) (Sink, error) {
 	for _, k := range sinkKeys[name] {
 		if c[k] == "" {
-			return nil, fmt.Errorf("%s is not configured: set %s", name, envName(k))
+			return nil, fmt.Errorf("%s is not configured: set %s or %s in the config file", name, envName(k), k)
 		}
 	}
 	switch name {
@@ -58,9 +58,12 @@ func (c config) newSink(name string) (Sink, error) {
 	return nil, fmt.Errorf("unknown sink %q (want %s)", name, strings.Join(sinkNames, ", "))
 }
 
-// selectSinks resolves the sinks to send to: the ones named, or every
-// configured sink when none are.
+// selectSinks resolves the sinks to send to: the ones named, else the
+// configured default list, else every configured sink.
 func selectSinks(names []string, c config) ([]Sink, error) {
+	if len(names) == 0 {
+		names = splitList(c["default"])
+	}
 	if len(names) == 0 {
 		for _, n := range sinkNames {
 			if c.configured(n) {
@@ -68,7 +71,7 @@ func selectSinks(names []string, c config) ([]Sink, error) {
 			}
 		}
 		if len(names) == 0 {
-			return nil, errors.New("no sinks configured: set NOTIFY_SLACK_WEBHOOK, NOTIFY_DISCORD_WEBHOOK or NOTIFY_NTFY_TOPIC")
+			return nil, errors.New("no sinks configured: set e.g. NOTIFY_SLACK_WEBHOOK, or see notify --help")
 		}
 	}
 	var sinks []Sink

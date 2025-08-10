@@ -27,23 +27,31 @@ taken from the arguments, or read from stdin when there are none:
   notify build finished
   make 2>&1 | tail -5 | notify --slack
 
-Sinks (with none selected, every configured sink is used):
+Sinks:
       --ntfy         push to an ntfy topic
       --slack        post to a Slack incoming webhook
       --discord      post to a Discord webhook
       --to LIST      comma-separated sinks, e.g. --to slack,discord
 
-Flags:
-  -t, --title TEXT   notification title
-  -h, --help         show this help
-      --version      print the version and exit
+With no sink selected, notify uses the "default" list from the config,
+else every configured sink.
 
-Environment:
-  NOTIFY_NTFY_TOPIC        ntfy topic to publish to
-  NOTIFY_NTFY_SERVER       ntfy server (default https://ntfy.sh)
-  NOTIFY_NTFY_TOKEN        ntfy access token, for protected topics
-  NOTIFY_SLACK_WEBHOOK     Slack incoming webhook URL
-  NOTIFY_DISCORD_WEBHOOK   Discord webhook URL
+Flags:
+  -t, --title TEXT    notification title
+  -c, --config FILE   config file (default ~/.config/notify/config)
+  -h, --help          show this help
+      --version       print the version and exit
+
+Configuration is read from $XDG_CONFIG_HOME/notify/config (or
+~/.config/notify/config) as "key = value" lines. Every key can also be set
+in the environment as NOTIFY_<KEY>, which overrides the file:
+
+  default           sinks to use when none are selected, e.g. slack,ntfy
+  ntfy_topic        ntfy topic to publish to
+  ntfy_server       ntfy server (default https://ntfy.sh)
+  ntfy_token        ntfy access token, for protected topics
+  slack_webhook     Slack incoming webhook URL
+  discord_webhook   Discord webhook URL
 
 Exit status is 0 when every sink succeeded, 1 when any failed, and 2 for
 usage or configuration errors.
@@ -59,12 +67,15 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer, getenv func(s
 	var (
 		title       string
 		to          string
+		configPath  string
 		showVersion bool
 		selected    = map[string]*bool{}
 	)
 	fs.StringVar(&title, "t", "", "")
 	fs.StringVar(&title, "title", "", "")
 	fs.StringVar(&to, "to", "", "")
+	fs.StringVar(&configPath, "c", "", "")
+	fs.StringVar(&configPath, "config", "", "")
 	fs.BoolVar(&showVersion, "version", false, "")
 	for _, name := range sinkNames {
 		selected[name] = fs.Bool(name, false, "")
@@ -82,13 +93,23 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer, getenv func(s
 		return 0
 	}
 
+	explicit := configPath != ""
+	if !explicit {
+		configPath = defaultConfigPath(getenv)
+	}
+	cfg, err := loadConfig(configPath, explicit, getenv)
+	if err != nil {
+		fmt.Fprintf(stderr, "notify: %v\n", err)
+		return 2
+	}
+
 	names := splitList(to)
 	for _, name := range sinkNames {
 		if *selected[name] {
 			names = append(names, name)
 		}
 	}
-	sinks, err := selectSinks(names, configFromEnv(getenv))
+	sinks, err := selectSinks(names, cfg)
 	if err != nil {
 		fmt.Fprintf(stderr, "notify: %v\n", err)
 		return 2

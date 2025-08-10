@@ -4,8 +4,11 @@ import (
 	"bytes"
 	"encoding/json"
 	"io"
+	"maps"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -173,7 +176,7 @@ func TestRunSinkErrors(t *testing.T) {
 		args []string
 		want string
 	}{
-		{[]string{"--ntfy", "hi"}, "ntfy is not configured: set NOTIFY_NTFY_TOPIC"},
+		{[]string{"--ntfy", "hi"}, "ntfy is not configured: set NOTIFY_NTFY_TOPIC or ntfy_topic in the config file"},
 		{[]string{"--to", "sms", "hi"}, `unknown sink "sms"`},
 		{[]string{"hi"}, "no sinks configured"},
 	}
@@ -198,5 +201,59 @@ func TestRunUsage(t *testing.T) {
 	}
 	if code := run([]string{"--bogus"}, nil, &stdout, &stderr, envMap(nil)); code != 2 {
 		t.Errorf("unknown flag exited %d, want 2", code)
+	}
+}
+
+func TestRunConfigDefault(t *testing.T) {
+	slack := newCapture(t, http.StatusOK, "ok")
+	discord := newCapture(t, http.StatusNoContent, "")
+	home := t.TempDir()
+	dir := filepath.Join(home, ".config", "notify")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cfg := "default = discord\nslack_webhook = " + slack.URL + "\ndiscord_webhook = " + discord.URL + "\n"
+	if err := os.WriteFile(filepath.Join(dir, "config"), []byte(cfg), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	tests := []struct {
+		name                string
+		env                 map[string]string
+		args                []string
+		wantSlack, wantDisc int
+	}{
+		{"config default", nil, nil, 0, 1},
+		{"env overrides file", map[string]string{"NOTIFY_DEFAULT": "slack"}, nil, 1, 0},
+		{"flag overrides env", map[string]string{"NOTIFY_DEFAULT": "slack"}, []string{"--to", "slack,discord"}, 1, 1},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			slack.hits, discord.hits = 0, 0
+			env := map[string]string{"HOME": home}
+			maps.Copy(env, tt.env)
+			var stdout, stderr bytes.Buffer
+			args := append(tt.args, "hello")
+			if code := run(args, nil, &stdout, &stderr, envMap(env)); code != 0 {
+				t.Fatalf("exit %d, stderr: %s", code, stderr.String())
+			}
+			if slack.hits != tt.wantSlack || discord.hits != tt.wantDisc {
+				t.Errorf("hits slack=%d discord=%d, want %d %d", slack.hits, discord.hits, tt.wantSlack, tt.wantDisc)
+			}
+		})
+	}
+}
+
+func TestRunBadConfig(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config")
+	if err := os.WriteFile(path, []byte("slack-webhook = x\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	if code := run([]string{"-c", path, "hi"}, nil, &stdout, &stderr, envMap(nil)); code != 2 {
+		t.Fatalf("exit %d, want 2", code)
+	}
+	if !strings.Contains(stderr.String(), `:1: unknown key "slack-webhook"`) {
+		t.Errorf("stderr %q", stderr.String())
 	}
 }

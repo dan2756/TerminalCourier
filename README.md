@@ -15,13 +15,34 @@ go install github.com/dan2756/notify@latest
 
 ## Setup
 
-Configure one or more sinks with environment variables:
+notify reads `~/.config/notify/config` (or `$XDG_CONFIG_HOME/notify/config`),
+a file of `key = value` lines:
 
-| Sink | Variables |
+```ini
+# sinks to use when none are given on the command line
+default = slack
+
+ntfy_topic = builds-7f3a          # https://ntfy.sh/builds-7f3a
+slack_webhook = https://hooks.slack.com/services/T000/B000/XXXX
+discord_webhook = https://discord.com/api/webhooks/1234/abcd
+```
+
+| Key | |
 | --- | --- |
-| `ntfy` | `NOTIFY_NTFY_TOPIC`, optional `NOTIFY_NTFY_SERVER` (default `https://ntfy.sh`) and `NOTIFY_NTFY_TOKEN` |
-| `slack` | `NOTIFY_SLACK_WEBHOOK` ([incoming webhook](https://api.slack.com/messaging/webhooks)) |
-| `discord` | `NOTIFY_DISCORD_WEBHOOK` (channel settings, Integrations, Webhooks) |
+| `default` | sinks used when none are selected, e.g. `slack, ntfy` |
+| `ntfy_topic` | ntfy topic to publish to |
+| `ntfy_server` | ntfy server, default `https://ntfy.sh` |
+| `ntfy_token` | ntfy access token, for protected topics |
+| `slack_webhook` | Slack [incoming webhook](https://api.slack.com/messaging/webhooks) URL |
+| `discord_webhook` | Discord webhook URL (channel settings, Integrations, Webhooks) |
+
+Lines starting with `#` or `;` are comments, as is anything after ` #`.
+Quote a value (`"..."` or `'...'`) to keep a `#` in it.
+
+Every key can also be set in the environment as `NOTIFY_` plus the key in
+upper case (`NOTIFY_SLACK_WEBHOOK`, `NOTIFY_NTFY_TOPIC`, `NOTIFY_DEFAULT`,
+...). Environment variables override the file, and command-line flags
+override both.
 
 ## Usage
 
@@ -33,13 +54,15 @@ notify deploy finished
 notify --to slack,ntfy "backup done"
 ```
 
-With no sink selected, notify sends to every configured sink at once.
+With no sink selected, notify uses `default`, or else every configured
+sink. Sinks are sent to at once; one failing doesn't stop the others.
 
 | Flag | |
 | --- | --- |
 | `--ntfy`, `--slack`, `--discord` | send to that sink |
 | `--to LIST` | comma-separated sinks |
 | `-t`, `--title TEXT` | notification title |
+| `-c`, `--config FILE` | read this config file instead |
 | `--version` | print the version |
 
 ## Exit status
