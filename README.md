@@ -1,7 +1,7 @@
 # notify
 
-Send stdin (or a few words) to your phone, Slack or Discord when a long
-command finishes.
+Send stdin (or a few words) to your phone, Slack, Discord or a desktop
+notification when a long command finishes.
 
 ```sh
 make 2>&1 | tail -5 | notify --slack -t "build"
@@ -58,11 +58,12 @@ notify --to slack,ntfy "backup done"
 ```
 
 With no sink selected, notify uses `default`, or else every configured
-sink. Sinks are sent to at once; one failing doesn't stop the others.
+sink, or else (with nothing configured at all) a desktop notification.
+Sinks are sent to at once; one failing doesn't stop the others.
 
 | Flag | |
 | --- | --- |
-| `--ntfy`, `--pushover`, `--slack`, `--discord` | send to that sink |
+| `--ntfy`, `--pushover`, `--slack`, `--discord`, `--mac` | send to that sink |
 | `--to LIST` | comma-separated sinks |
 | `-t`, `--title TEXT` | notification title |
 | `-p`, `--priority P` | `low`, `normal` (default) or `high` |
@@ -77,6 +78,19 @@ sink. Sinks are sent to at once; one failing doesn't stop the others.
 | Pushover | -1 (quiet) | 1 (bypasses quiet hours) |
 | Discord | posted without a notification | - |
 | Slack | - | - |
+| macOS | - | plays a sound |
+| notify-send | `--urgency=low` | `--urgency=critical` |
+
+## Desktop notifications
+
+`--mac` (or `desktop` in `--to` and `default`) needs no setup. On macOS it
+runs `osascript -e 'display notification ...'`; the title defaults to
+"notify". The first notification may ask for permission for Script Editor
+in System Settings, Notifications.
+
+On Linux it uses `notify-send` from libnotify (`libnotify-bin` on Debian
+and Ubuntu, `libnotify` elsewhere) and fails with a clear error if that
+isn't installed.
 
 ## Exit status
 

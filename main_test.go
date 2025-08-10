@@ -2,12 +2,15 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"maps"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -15,6 +18,43 @@ import (
 
 func envMap(m map[string]string) func(string) string {
 	return func(k string) string { return m[k] }
+}
+
+// noDesktop is a Desktop on a machine without any notifier.
+func noDesktop() *Desktop {
+	return &Desktop{
+		goos:     "linux",
+		lookPath: func(string) (string, error) { return "", exec.ErrNotFound },
+		run: func(context.Context, string, ...string) error {
+			return errors.New("no desktop in tests")
+		},
+	}
+}
+
+// fakeDesktop is a Linux Desktop that records the commands it would run.
+type fakeDesktop struct {
+	Desktop
+	calls [][]string
+}
+
+func newFakeDesktop() *fakeDesktop {
+	f := &fakeDesktop{}
+	f.Desktop = Desktop{
+		goos:     "linux",
+		lookPath: func(file string) (string, error) { return "/usr/bin/" + file, nil },
+		run: func(_ context.Context, name string, args ...string) error {
+			f.calls = append(f.calls, append([]string{name}, args...))
+			return nil
+		},
+	}
+	return f
+}
+
+// run runs notify as main does, but with the given environment and no
+// desktop notifier.
+func run(args []string, stdin io.Reader, stdout, stderr io.Writer, getenv func(string) string) int {
+	a := &app{stdin: stdin, stdout: stdout, stderr: stderr, getenv: getenv, desktop: noDesktop()}
+	return a.run(args)
 }
 
 // capture is an httptest server that records the last request it got.
@@ -256,6 +296,46 @@ func TestRunBadConfig(t *testing.T) {
 		t.Fatalf("exit %d, want 2", code)
 	}
 	if !strings.Contains(stderr.String(), `:1: unknown key "slack-webhook"`) {
+		t.Errorf("stderr %q", stderr.String())
+	}
+}
+
+func TestRunDesktop(t *testing.T) {
+	slack := newCapture(t, http.StatusOK, "ok")
+	tests := []struct {
+		name      string
+		env       map[string]string
+		args      []string
+		wantCalls int
+		wantSlack int
+	}{
+		{"fallback when nothing is configured", nil, []string{"hi"}, 1, 0},
+		{"not added when a sink is configured", map[string]string{"NOTIFY_SLACK_WEBHOOK": slack.URL}, []string{"hi"}, 0, 1},
+		{"--mac", map[string]string{"NOTIFY_SLACK_WEBHOOK": slack.URL}, []string{"--mac", "hi"}, 1, 0},
+		{"desktop alias", map[string]string{"NOTIFY_SLACK_WEBHOOK": slack.URL}, []string{"--to", "slack,desktop", "hi"}, 1, 1},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			slack.hits = 0
+			d := newFakeDesktop()
+			var stdout, stderr bytes.Buffer
+			a := &app{stdout: &stdout, stderr: &stderr, getenv: envMap(tt.env), desktop: &d.Desktop}
+			if code := a.run(tt.args); code != 0 {
+				t.Fatalf("exit %d, stderr: %s", code, stderr.String())
+			}
+			if len(d.calls) != tt.wantCalls || slack.hits != tt.wantSlack {
+				t.Errorf("desktop calls %v, slack hits %d", d.calls, slack.hits)
+			}
+		})
+	}
+}
+
+func TestRunMacUnavailable(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	if code := run([]string{"--mac", "hi"}, nil, &stdout, &stderr, envMap(nil)); code != 1 {
+		t.Fatalf("exit %d, want 1", code)
+	}
+	if !strings.Contains(stderr.String(), "mac: no desktop notifier found") {
 		t.Errorf("stderr %q", stderr.String())
 	}
 }

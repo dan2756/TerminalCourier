@@ -16,11 +16,11 @@ type Sink interface {
 }
 
 // sinkNames lists every sink in the order they are reported.
-var sinkNames = []string{"ntfy", "pushover", "slack", "discord"}
+var sinkNames = []string{"ntfy", "pushover", "slack", "discord", "mac"}
 
 // sinkKeys are the settings each sink needs. A sink counts as configured
 // when any of them is set, so a half-finished setup is reported rather
-// than silently skipped.
+// than silently skipped. The desktop sink needs no settings.
 var sinkKeys = map[string][]string{
 	"ntfy":     {"ntfy_topic"},
 	"pushover": {"pushover_token", "pushover_user"},
@@ -38,7 +38,7 @@ func (c config) configured(name string) bool {
 }
 
 // newSink builds the named sink from c, or explains what it is missing.
-func (c config) newSink(name string) (Sink, error) {
+func (c config) newSink(name string, desktop *Desktop) (Sink, error) {
 	for _, k := range sinkKeys[name] {
 		if c[k] == "" {
 			return nil, fmt.Errorf("%s is not configured: set %s or %s in the config file", name, envName(k), k)
@@ -61,13 +61,15 @@ func (c config) newSink(name string) (Sink, error) {
 		return &Slack{Webhook: c["slack_webhook"]}, nil
 	case "discord":
 		return &Discord{Webhook: c["discord_webhook"]}, nil
+	case "mac", "desktop":
+		return desktop, nil
 	}
 	return nil, fmt.Errorf("unknown sink %q (want %s)", name, strings.Join(sinkNames, ", "))
 }
 
 // selectSinks resolves the sinks to send to: the ones named, else the
-// configured default list, else every configured sink.
-func selectSinks(names []string, c config) ([]Sink, error) {
+// configured default list, else every configured sink, else the desktop.
+func selectSinks(names []string, c config, desktop *Desktop) ([]Sink, error) {
 	if len(names) == 0 {
 		names = splitList(c["default"])
 	}
@@ -77,18 +79,25 @@ func selectSinks(names []string, c config) ([]Sink, error) {
 				names = append(names, n)
 			}
 		}
-		if len(names) == 0 {
+	}
+	if len(names) == 0 {
+		// Nothing set up yet: a desktop notification works out of the box.
+		if !desktop.available() {
 			return nil, errors.New("no sinks configured: set e.g. NOTIFY_SLACK_WEBHOOK, or see notify --help")
 		}
+		names = []string{"mac"}
 	}
 	var sinks []Sink
 	seen := map[string]bool{}
 	for _, n := range names {
+		if n == "desktop" {
+			n = "mac"
+		}
 		if seen[n] {
 			continue
 		}
 		seen[n] = true
-		s, err := c.newSink(n)
+		s, err := c.newSink(n, desktop)
 		if err != nil {
 			return nil, err
 		}

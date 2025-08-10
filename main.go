@@ -21,9 +21,9 @@ const timeout = 10 * time.Second
 
 const usage = `Usage: notify [flags] [message...]
 
-Send a message to your phone (via ntfy or Pushover), Slack or Discord.
-The message is taken from the arguments, or read from stdin when there
-are none:
+Send a message to your phone (via ntfy or Pushover), Slack, Discord or
+the desktop. The message is taken from the arguments, or read from stdin
+when there are none:
 
   notify build finished
   make 2>&1 | tail -5 | notify --slack
@@ -33,10 +33,11 @@ Sinks:
       --pushover     push through Pushover
       --slack        post to a Slack incoming webhook
       --discord      post to a Discord webhook
-      --to LIST      comma-separated sinks, e.g. --to slack,discord
+      --mac          show a desktop notification (notify-send on Linux)
+      --to LIST      comma-separated sinks, e.g. --to slack,mac
 
 With no sink selected, notify uses the "default" list from the config,
-else every configured sink.
+else every configured sink, else a desktop notification.
 
 Flags:
   -t, --title TEXT    notification title
@@ -62,11 +63,29 @@ Exit status is 0 when every sink succeeded, 1 when any failed, and 2 for
 usage or configuration errors.
 `
 
-func main() {
-	os.Exit(run(os.Args[1:], os.Stdin, os.Stdout, os.Stderr, os.Getenv))
+// app is everything notify needs from the outside world, so tests can
+// substitute their own.
+type app struct {
+	stdin   io.Reader
+	stdout  io.Writer
+	stderr  io.Writer
+	getenv  func(string) string
+	desktop *Desktop
 }
 
-func run(args []string, stdin io.Reader, stdout, stderr io.Writer, getenv func(string) string) int {
+func main() {
+	a := &app{
+		stdin:   os.Stdin,
+		stdout:  os.Stdout,
+		stderr:  os.Stderr,
+		getenv:  os.Getenv,
+		desktop: newDesktop(),
+	}
+	os.Exit(a.run(os.Args[1:]))
+}
+
+func (a *app) run(args []string) int {
+	stdout, stderr := a.stdout, a.stderr
 	fs := flag.NewFlagSet("notify", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	var (
@@ -109,9 +128,9 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer, getenv func(s
 
 	explicit := configPath != ""
 	if !explicit {
-		configPath = defaultConfigPath(getenv)
+		configPath = defaultConfigPath(a.getenv)
 	}
-	cfg, err := loadConfig(configPath, explicit, getenv)
+	cfg, err := loadConfig(configPath, explicit, a.getenv)
 	if err != nil {
 		fmt.Fprintf(stderr, "notify: %v\n", err)
 		return 2
@@ -123,13 +142,13 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer, getenv func(s
 			names = append(names, name)
 		}
 	}
-	sinks, err := selectSinks(names, cfg)
+	sinks, err := selectSinks(names, cfg, a.desktop)
 	if err != nil {
 		fmt.Fprintf(stderr, "notify: %v\n", err)
 		return 2
 	}
 
-	body, err := readMessage(fs.Args(), stdin)
+	body, err := readMessage(fs.Args(), a.stdin)
 	if err != nil {
 		fmt.Fprintf(stderr, "notify: %v\n", err)
 		return 2
