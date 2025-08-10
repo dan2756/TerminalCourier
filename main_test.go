@@ -14,18 +14,22 @@ func envMap(m map[string]string) func(string) string {
 	return func(k string) string { return m[k] }
 }
 
-// capture is an httptest server that records the last request body.
+// capture is an httptest server that records the last request it got.
 type capture struct {
 	*httptest.Server
-	path string
-	body []byte
+	hits   int
+	path   string
+	header http.Header
+	body   []byte
 }
 
 func newCapture(t *testing.T, status int, reply string) *capture {
 	t.Helper()
 	c := &capture{}
 	c.Server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		c.hits++
 		c.path = r.URL.Path
+		c.header = r.Header.Clone()
 		c.body, _ = io.ReadAll(r.Body)
 		w.WriteHeader(status)
 		io.WriteString(w, reply)
@@ -97,6 +101,90 @@ func TestRunSlackError(t *testing.T) {
 	}
 	if want := "slack: HTTP 404 Not Found: no_service"; !strings.Contains(stderr.String(), want) {
 		t.Errorf("stderr %q does not mention %q", stderr.String(), want)
+	}
+}
+
+func TestRunEveryConfiguredSink(t *testing.T) {
+	slack := newCapture(t, http.StatusOK, "ok")
+	discord := newCapture(t, http.StatusNoContent, "")
+	env := envMap(map[string]string{
+		"NOTIFY_SLACK_WEBHOOK":   slack.URL,
+		"NOTIFY_DISCORD_WEBHOOK": discord.URL,
+	})
+	var stdout, stderr bytes.Buffer
+	if code := run([]string{"deploy", "done"}, nil, &stdout, &stderr, env); code != 0 {
+		t.Fatalf("exit %d, stderr: %s", code, stderr.String())
+	}
+	if slack.hits != 1 || discord.hits != 1 {
+		t.Errorf("slack got %d requests, discord %d; want 1 each", slack.hits, discord.hits)
+	}
+}
+
+func TestRunSelectedSinksOnly(t *testing.T) {
+	slack := newCapture(t, http.StatusOK, "ok")
+	discord := newCapture(t, http.StatusNoContent, "")
+	ntfy := newCapture(t, http.StatusOK, "{}")
+	env := envMap(map[string]string{
+		"NOTIFY_SLACK_WEBHOOK":   slack.URL,
+		"NOTIFY_DISCORD_WEBHOOK": discord.URL,
+		"NOTIFY_NTFY_SERVER":     ntfy.URL,
+		"NOTIFY_NTFY_TOPIC":      "builds",
+	})
+	for _, args := range [][]string{
+		{"--discord", "--ntfy", "hi"},
+		{"--to", "discord,ntfy", "hi"},
+		{"--to", "ntfy", "--discord", "hi"},
+	} {
+		slack.hits, discord.hits, ntfy.hits = 0, 0, 0
+		var stdout, stderr bytes.Buffer
+		if code := run(args, nil, &stdout, &stderr, env); code != 0 {
+			t.Fatalf("%v: exit %d, stderr: %s", args, code, stderr.String())
+		}
+		if slack.hits != 0 || discord.hits != 1 || ntfy.hits != 1 {
+			t.Errorf("%v: hits slack=%d discord=%d ntfy=%d", args, slack.hits, discord.hits, ntfy.hits)
+		}
+	}
+}
+
+func TestRunReportsFailedSink(t *testing.T) {
+	slack := newCapture(t, http.StatusInternalServerError, "oops")
+	discord := newCapture(t, http.StatusNoContent, "")
+	env := envMap(map[string]string{
+		"NOTIFY_SLACK_WEBHOOK":   slack.URL,
+		"NOTIFY_DISCORD_WEBHOOK": discord.URL,
+	})
+	var stdout, stderr bytes.Buffer
+	if code := run([]string{"hi"}, nil, &stdout, &stderr, env); code != 1 {
+		t.Fatalf("exit %d, want 1", code)
+	}
+	if discord.hits != 1 {
+		t.Error("discord should still be sent to when slack fails")
+	}
+	if !strings.Contains(stderr.String(), "slack: HTTP 500") {
+		t.Errorf("stderr %q does not name the failed sink", stderr.String())
+	}
+	if strings.Contains(stderr.String(), "discord") {
+		t.Errorf("stderr %q mentions discord, which succeeded", stderr.String())
+	}
+}
+
+func TestRunSinkErrors(t *testing.T) {
+	tests := []struct {
+		args []string
+		want string
+	}{
+		{[]string{"--ntfy", "hi"}, "ntfy is not configured: set NOTIFY_NTFY_TOPIC"},
+		{[]string{"--to", "sms", "hi"}, `unknown sink "sms"`},
+		{[]string{"hi"}, "no sinks configured"},
+	}
+	for _, tt := range tests {
+		var stdout, stderr bytes.Buffer
+		if code := run(tt.args, nil, &stdout, &stderr, envMap(nil)); code != 2 {
+			t.Errorf("%v: exit %d, want 2", tt.args, code)
+		}
+		if !strings.Contains(stderr.String(), tt.want) {
+			t.Errorf("%v: stderr %q, want %q", tt.args, stderr.String(), tt.want)
+		}
 	}
 }
 

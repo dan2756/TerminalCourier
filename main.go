@@ -21,11 +21,17 @@ const timeout = 10 * time.Second
 
 const usage = `Usage: notify [flags] [message...]
 
-Send a message to a Slack incoming webhook. The message is taken from the
-arguments, or read from stdin when there are none:
+Send a message to Slack, Discord or your phone (via ntfy). The message is
+taken from the arguments, or read from stdin when there are none:
 
   notify build finished
-  make 2>&1 | tail -5 | notify
+  make 2>&1 | tail -5 | notify --slack
+
+Sinks (with none selected, every configured sink is used):
+      --ntfy         push to an ntfy topic
+      --slack        post to a Slack incoming webhook
+      --discord      post to a Discord webhook
+      --to LIST      comma-separated sinks, e.g. --to slack,discord
 
 Flags:
   -t, --title TEXT   notification title
@@ -33,7 +39,14 @@ Flags:
       --version      print the version and exit
 
 Environment:
-  NOTIFY_SLACK_WEBHOOK   Slack incoming webhook URL
+  NOTIFY_NTFY_TOPIC        ntfy topic to publish to
+  NOTIFY_NTFY_SERVER       ntfy server (default https://ntfy.sh)
+  NOTIFY_NTFY_TOKEN        ntfy access token, for protected topics
+  NOTIFY_SLACK_WEBHOOK     Slack incoming webhook URL
+  NOTIFY_DISCORD_WEBHOOK   Discord webhook URL
+
+Exit status is 0 when every sink succeeded, 1 when any failed, and 2 for
+usage or configuration errors.
 `
 
 func main() {
@@ -45,11 +58,17 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer, getenv func(s
 	fs.SetOutput(io.Discard)
 	var (
 		title       string
+		to          string
 		showVersion bool
+		selected    = map[string]*bool{}
 	)
 	fs.StringVar(&title, "t", "", "")
 	fs.StringVar(&title, "title", "", "")
+	fs.StringVar(&to, "to", "", "")
 	fs.BoolVar(&showVersion, "version", false, "")
+	for _, name := range sinkNames {
+		selected[name] = fs.Bool(name, false, "")
+	}
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			fmt.Fprint(stdout, usage)
@@ -63,9 +82,15 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer, getenv func(s
 		return 0
 	}
 
-	webhook := getenv("NOTIFY_SLACK_WEBHOOK")
-	if webhook == "" {
-		fmt.Fprintln(stderr, "notify: NOTIFY_SLACK_WEBHOOK is not set")
+	names := splitList(to)
+	for _, name := range sinkNames {
+		if *selected[name] {
+			names = append(names, name)
+		}
+	}
+	sinks, err := selectSinks(names, configFromEnv(getenv))
+	if err != nil {
+		fmt.Fprintf(stderr, "notify: %v\n", err)
 		return 2
 	}
 
@@ -77,12 +102,14 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer, getenv func(s
 
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
-	slack := &Slack{Webhook: webhook}
-	if err := slack.Send(ctx, Message{Title: title, Body: body}); err != nil {
-		fmt.Fprintf(stderr, "notify: slack: %v\n", err)
-		return 1
+	code := 0
+	for i, err := range sendAll(ctx, sinks, Message{Title: title, Body: body}) {
+		if err != nil {
+			fmt.Fprintf(stderr, "notify: %s: %v\n", sinks[i].Name(), err)
+			code = 1
+		}
 	}
-	return 0
+	return code
 }
 
 func versionString() string {

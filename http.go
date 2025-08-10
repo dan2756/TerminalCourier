@@ -25,8 +25,8 @@ func (e *httpError) Error() string {
 	return fmt.Sprintf("HTTP %s: %s", e.Status, e.Detail)
 }
 
-// postJSON POSTs v as JSON to url.
-func postJSON(ctx context.Context, url string, v any) error {
+// postJSON POSTs v as JSON to url with any extra headers.
+func postJSON(ctx context.Context, url string, header http.Header, v any) error {
 	var buf bytes.Buffer
 	enc := json.NewEncoder(&buf)
 	enc.SetEscapeHTML(false)
@@ -36,6 +36,9 @@ func postJSON(ctx context.Context, url string, v any) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, &buf)
 	if err != nil {
 		return err
+	}
+	for k, vs := range header {
+		req.Header[k] = vs
 	}
 	req.Header.Set("Content-Type", "application/json")
 	return do(req)
@@ -57,7 +60,21 @@ func do(req *http.Request) error {
 }
 
 // errorDetail pulls a short, single-line reason out of an error response.
+// JSON bodies from Discord ("message") and ntfy ("error") are reduced to
+// their reason; anything else is used as is.
 func errorDetail(body []byte) string {
+	var v struct {
+		Message string `json:"message"`
+		Error   string `json:"error"`
+	}
+	// Unmarshal fills what it can even when other fields don't match.
+	_ = json.Unmarshal(body, &v)
+	switch {
+	case v.Message != "":
+		return v.Message
+	case v.Error != "":
+		return v.Error
+	}
 	s := strings.Join(strings.Fields(string(body)), " ")
 	if len(s) > 200 {
 		s = s[:200] + "..."
