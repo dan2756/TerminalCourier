@@ -89,9 +89,5 @@ func errorDetail(body []byte) string {
 	case v.Error != "":
 		return v.Error
 	}
-	s := strings.Join(strings.Fields(string(body)), " ")
-	if len(s) > 200 {
-		s = s[:200] + "..."
-	}
-	return s
+	return truncate(strings.Join(strings.Fields(string(body)), " "), 200)
 }

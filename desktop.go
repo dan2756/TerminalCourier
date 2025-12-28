@@ -43,8 +43,9 @@ func (d *Desktop) command(m Message) (string, []string, error) {
 	if title == "" {
 		title = "notify"
 	}
+	body := truncate(m.Body, desktopLimit)
 	if d.goos == "darwin" {
-		return "osascript", []string{"-e", appleScript(title, m.Body, m.Priority)}, nil
+		return "osascript", []string{"-e", appleScript(title, body, m.Priority)}, nil
 	}
 	if _, err := d.lookPath("notify-send"); err != nil {
 		return "", nil, errors.New("no desktop notifier found: needs osascript (macOS) or notify-send (libnotify)")
@@ -57,7 +58,7 @@ func (d *Desktop) command(m Message) (string, []string, error) {
 		urgency = "critical"
 	}
 	// "--" so that a message starting with a dash isn't read as an option.
-	return "notify-send", []string{"--app-name=notify", "--urgency=" + urgency, "--", title, m.Body}, nil
+	return "notify-send", []string{"--app-name=notify", "--urgency=" + urgency, "--", title, body}, nil
 }
 
 // appleScript returns a "display notification" statement for osascript.

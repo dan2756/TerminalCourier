@@ -25,5 +25,6 @@ func (s *Slack) Send(ctx context.Context, m Message) error {
 	if m.Title != "" {
 		text = "*" + slackEscaper.Replace(m.Title) + "*\n" + text
 	}
+	text = truncate(text, slackLimit)
 	return postJSON(ctx, s.Webhook, nil, slackMessage{Text: text})
 }

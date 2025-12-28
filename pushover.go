@@ -21,10 +21,10 @@ func (p *Pushover) Send(ctx context.Context, m Message) error {
 	form := url.Values{
 		"token":   {p.Token},
 		"user":    {p.User},
-		"message": {m.Body},
+		"message": {truncate(m.Body, pushoverLimit)},
 	}
 	if m.Title != "" {
-		form.Set("title", m.Title)
+		form.Set("title", truncate(m.Title, pushoverTitleLimit))
 	}
 	// Pushover's own scale: -1 is quiet, 1 bypasses the user's quiet hours.
 	if m.Priority != Normal {

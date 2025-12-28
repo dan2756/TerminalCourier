@@ -29,7 +29,7 @@ func (d *Discord) Send(ctx context.Context, m Message) error {
 		content = "**" + m.Title + "**\n" + content
 	}
 	msg := discordMessage{
-		Content: content,
+		Content: truncate(content, discordLimit),
 		// Piped output may well contain "@everyone"; never ping anyone.
 		AllowedMentions: allowedMentions{Parse: []string{}},
 	}

@@ -33,7 +33,7 @@ func (n *Ntfy) Send(ctx context.Context, m Message) error {
 	}
 	msg := ntfyMessage{
 		Topic:    n.Topic,
-		Message:  m.Body,
+		Message:  truncateBytes(m.Body, ntfyLimit),
 		Title:    m.Title,
 		Priority: ntfyPriority(m.Priority),
 	}

@@ -81,6 +81,21 @@ Sinks are sent to at once; one failing doesn't stop the others.
 | macOS | - | plays a sound |
 | notify-send | `--urgency=low` | `--urgency=critical` |
 
+### Long messages
+
+Each service has a size limit, and notify cuts longer messages short with
+an ellipsis instead of having them rejected:
+
+| Sink | Limit |
+| --- | --- |
+| Slack | 40,000 characters |
+| Discord | 2,000 characters (title included) |
+| Pushover | 1,024 characters, title 250 |
+| ntfy | 4,096 bytes |
+| desktop | 1,024 characters |
+
+Pipe through `tail` to send the end of a long log rather than its start.
+
 ## Desktop notifications
 
 `--mac` (or `desktop` in `--to` and `default`) needs no setup. On macOS it
