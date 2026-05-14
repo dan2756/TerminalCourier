@@ -24,6 +24,15 @@ type allowedMentions struct {
 func (d *Discord) Name() string { return "discord" }
 
 func (d *Discord) Send(ctx context.Context, m Message) error {
+	return sendRequest(ctx, d.request, m)
+}
+
+func (d *Discord) Preview(m Message) (string, error) {
+	safe := &Discord{Webhook: redactURL(d.Webhook)}
+	return previewRequest(safe.request, m)
+}
+
+func (d *Discord) request(m Message) (*request, error) {
 	content := m.Body
 	if m.Title != "" {
 		content = "**" + m.Title + "**\n" + content
@@ -36,5 +45,5 @@ func (d *Discord) Send(ctx context.Context, m Message) error {
 	if m.Priority == Low {
 		msg.Flags = discordSuppressNotifications
 	}
-	return postJSON(ctx, d.Webhook, nil, msg)
+	return jsonRequest(d.Webhook, msg)
 }

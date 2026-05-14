@@ -21,10 +21,19 @@ type slackMessage struct {
 func (s *Slack) Name() string { return "slack" }
 
 func (s *Slack) Send(ctx context.Context, m Message) error {
+	return sendRequest(ctx, s.request, m)
+}
+
+func (s *Slack) Preview(m Message) (string, error) {
+	safe := &Slack{Webhook: redactURL(s.Webhook)}
+	return previewRequest(safe.request, m)
+}
+
+func (s *Slack) request(m Message) (*request, error) {
 	text := slackEscaper.Replace(m.Body)
 	if m.Title != "" {
 		text = "*" + slackEscaper.Replace(m.Title) + "*\n" + text
 	}
 	text = truncate(text, slackLimit)
-	return postJSON(ctx, s.Webhook, nil, slackMessage{Text: text})
+	return jsonRequest(s.Webhook, slackMessage{Text: text})
 }

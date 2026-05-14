@@ -6,56 +6,75 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"maps"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 )
 
 var httpClient = &http.Client{Timeout: timeout}
 
-// httpError is a non-2xx response from a service.
-type httpError struct {
-	Status string // e.g. "404 Not Found"
-	Detail string // reason given in the response body, if any
+// redacted stands in for secrets in --dry-run output.
+const redacted = "REDACTED"
+
+// request is an HTTP request a sink wants to make, kept as plain data so
+// that --dry-run can print it instead.
+type request struct {
+	method string
+	url    string
+	header http.Header
+	body   []byte
 }
 
-func (e *httpError) Error() string {
-	if e.Detail == "" {
-		return "HTTP " + e.Status
-	}
-	return fmt.Sprintf("HTTP %s: %s", e.Status, e.Detail)
-}
-
-// postJSON POSTs v as JSON to endpoint with any extra headers.
-func postJSON(ctx context.Context, endpoint string, header http.Header, v any) error {
+// jsonRequest builds a POST of v as JSON.
+func jsonRequest(endpoint string, v any) (*request, error) {
 	var buf bytes.Buffer
 	enc := json.NewEncoder(&buf)
 	enc.SetEscapeHTML(false)
 	if err := enc.Encode(v); err != nil {
-		return err
+		return nil, err
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, &buf)
+	return &request{
+		method: http.MethodPost,
+		url:    endpoint,
+		header: http.Header{"Content-Type": {"application/json"}},
+		body:   bytes.TrimSuffix(buf.Bytes(), []byte("\n")),
+	}, nil
+}
+
+// formRequest builds a URL-encoded form POST.
+func formRequest(endpoint string, form url.Values) *request {
+	return &request{
+		method: http.MethodPost,
+		url:    endpoint,
+		header: http.Header{"Content-Type": {"application/x-www-form-urlencoded"}},
+		body:   []byte(form.Encode()),
+	}
+}
+
+// String formats r for --dry-run, much as it would go over the wire.
+func (r *request) String() string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "%s %s\n", r.method, r.url)
+	for _, k := range slices.Sorted(maps.Keys(r.header)) {
+		for _, v := range r.header[k] {
+			fmt.Fprintf(&b, "%s: %s\n", k, v)
+		}
+	}
+	fmt.Fprintf(&b, "\n%s\n", r.body)
+	return b.String()
+}
+
+// send makes the request and turns a non-2xx response into an error.
+func (r *request) send(ctx context.Context) error {
+	req, err := http.NewRequestWithContext(ctx, r.method, r.url, bytes.NewReader(r.body))
 	if err != nil {
 		return err
 	}
-	for k, vs := range header {
+	for k, vs := range r.header {
 		req.Header[k] = vs
 	}
-	req.Header.Set("Content-Type", "application/json")
-	return do(req)
-}
-
-// postForm POSTs form to endpoint, URL-encoded.
-func postForm(ctx context.Context, endpoint string, form url.Values) error {
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, strings.NewReader(form.Encode()))
-	if err != nil {
-		return err
-	}
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	return do(req)
-}
-
-func do(req *http.Request) error {
 	req.Header.Set("User-Agent", "notify/"+versionString())
 	resp, err := httpClient.Do(req)
 	if err != nil {
@@ -68,6 +87,47 @@ func do(req *http.Request) error {
 	}
 	_, _ = io.Copy(io.Discard, resp.Body)
 	return nil
+}
+
+// sendRequest and previewRequest implement Sink.Send and Sink.Preview for
+// sinks that make a single HTTP request.
+func sendRequest(ctx context.Context, build func(Message) (*request, error), m Message) error {
+	r, err := build(m)
+	if err != nil {
+		return err
+	}
+	return r.send(ctx)
+}
+
+func previewRequest(build func(Message) (*request, error), m Message) (string, error) {
+	r, err := build(m)
+	if err != nil {
+		return "", err
+	}
+	return r.String(), nil
+}
+
+// redactURL keeps only the scheme and host of a webhook URL, since the
+// rest of it is the secret.
+func redactURL(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil || u.Scheme == "" || u.Host == "" {
+		return redacted
+	}
+	return u.Scheme + "://" + u.Host + "/" + redacted
+}
+
+// httpError is a non-2xx response from a service.
+type httpError struct {
+	Status string // e.g. "404 Not Found"
+	Detail string // reason given in the response body, if any
+}
+
+func (e *httpError) Error() string {
+	if e.Detail == "" {
+		return "HTTP " + e.Status
+	}
+	return fmt.Sprintf("HTTP %s: %s", e.Status, e.Detail)
 }
 
 // errorDetail pulls a short, single-line reason out of an error response.

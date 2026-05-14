@@ -18,6 +18,15 @@ type Pushover struct {
 func (p *Pushover) Name() string { return "pushover" }
 
 func (p *Pushover) Send(ctx context.Context, m Message) error {
+	return sendRequest(ctx, p.request, m)
+}
+
+func (p *Pushover) Preview(m Message) (string, error) {
+	safe := &Pushover{Token: redacted, User: redacted, URL: p.URL}
+	return previewRequest(safe.request, m)
+}
+
+func (p *Pushover) request(m Message) (*request, error) {
 	form := url.Values{
 		"token":   {p.Token},
 		"user":    {p.User},
@@ -30,5 +39,5 @@ func (p *Pushover) Send(ctx context.Context, m Message) error {
 	if m.Priority != Normal {
 		form.Set("priority", strconv.Itoa(int(m.Priority)))
 	}
-	return postForm(ctx, p.URL, form)
+	return formRequest(p.URL, form), nil
 }

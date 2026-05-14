@@ -13,6 +13,8 @@ import (
 type Sink interface {
 	Name() string
 	Send(ctx context.Context, m Message) error
+	// Preview describes what Send would do, with any secrets redacted.
+	Preview(m Message) (string, error)
 }
 
 // sinkNames lists every sink in the order they are reported.

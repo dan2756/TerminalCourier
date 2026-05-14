@@ -67,8 +67,27 @@ Sinks are sent to at once; one failing doesn't stop the others.
 | `--to LIST` | comma-separated sinks |
 | `-t`, `--title TEXT` | notification title |
 | `-p`, `--priority P` | `low`, `normal` (default) or `high` |
+| `-n`, `--dry-run` | print each request instead of sending it, secrets redacted |
 | `-c`, `--config FILE` | read this config file instead |
 | `--version` | print the version |
+
+### Dry run
+
+`--dry-run` shows exactly what would be sent where, without sending it.
+Webhook paths, tokens and the ntfy topic are replaced with `REDACTED`, so
+the output is safe to paste into an issue:
+
+```console
+$ notify -n -t CI --to slack,mac "tests <passed>"
+--- slack ---
+POST https://hooks.slack.com/REDACTED
+Content-Type: application/json
+
+{"text":"*CI*\ntests &lt;passed&gt;"}
+
+--- mac ---
+osascript -e 'display notification "tests <passed>" with title "CI"'
+```
 
 ### Priority
 

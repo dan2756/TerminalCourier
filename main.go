@@ -42,6 +42,7 @@ else every configured sink, else a desktop notification.
 Flags:
   -t, --title TEXT    notification title
   -p, --priority P    low, normal (default) or high
+  -n, --dry-run       print what would be sent, with secrets redacted
   -c, --config FILE   config file (default ~/.config/notify/config)
   -h, --help          show this help
       --version       print the version and exit
@@ -93,6 +94,7 @@ func (a *app) run(args []string) int {
 		priority    string
 		to          string
 		configPath  string
+		dryRun      bool
 		showVersion bool
 		selected    = map[string]*bool{}
 	)
@@ -103,6 +105,8 @@ func (a *app) run(args []string) int {
 	fs.StringVar(&to, "to", "", "")
 	fs.StringVar(&configPath, "c", "", "")
 	fs.StringVar(&configPath, "config", "", "")
+	fs.BoolVar(&dryRun, "n", false, "")
+	fs.BoolVar(&dryRun, "dry-run", false, "")
 	fs.BoolVar(&showVersion, "version", false, "")
 	for _, name := range sinkNames {
 		selected[name] = fs.Bool(name, false, "")
@@ -154,15 +158,37 @@ func (a *app) run(args []string) int {
 		return 2
 	}
 
+	msg := Message{Title: title, Body: body, Priority: prio}
+	if dryRun {
+		return a.preview(sinks, msg)
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	code := 0
-	msg := Message{Title: title, Body: body, Priority: prio}
 	for i, err := range sendAll(ctx, sinks, msg) {
 		if err != nil {
 			fmt.Fprintf(stderr, "notify: %s: %v\n", sinks[i].Name(), err)
 			code = 1
 		}
+	}
+	return code
+}
+
+// preview prints what each sink would send, without sending anything.
+func (a *app) preview(sinks []Sink, m Message) int {
+	code := 0
+	for i, s := range sinks {
+		p, err := s.Preview(m)
+		if err != nil {
+			fmt.Fprintf(a.stderr, "notify: %s: %v\n", s.Name(), err)
+			code = 1
+			continue
+		}
+		if i > 0 {
+			fmt.Fprintln(a.stdout)
+		}
+		fmt.Fprintf(a.stdout, "--- %s ---\n%s", s.Name(), p)
 	}
 	return code
 }

@@ -2,7 +2,7 @@ package main
 
 import (
 	"context"
-	"net/http"
+	"net/url"
 	"strings"
 )
 
@@ -25,19 +25,39 @@ type ntfyMessage struct {
 func (n *Ntfy) Name() string { return "ntfy" }
 
 func (n *Ntfy) Send(ctx context.Context, m Message) error {
-	// Publishing JSON to the server root, rather than a plain body with
-	// a Title header, keeps non-ASCII titles intact.
-	header := http.Header{}
-	if n.Token != "" {
-		header.Set("Authorization", "Bearer "+n.Token)
+	return sendRequest(ctx, n.request, m)
+}
+
+// Preview hides the topic as well as the token: on a public server, anyone
+// who knows the topic can read it.
+func (n *Ntfy) Preview(m Message) (string, error) {
+	safe := &Ntfy{Server: n.Server, Topic: redacted}
+	if u, err := url.Parse(n.Server); err == nil {
+		safe.Server = u.Redacted()
 	}
+	if n.Token != "" {
+		safe.Token = redacted
+	}
+	return previewRequest(safe.request, m)
+}
+
+func (n *Ntfy) request(m Message) (*request, error) {
 	msg := ntfyMessage{
 		Topic:    n.Topic,
 		Message:  truncateBytes(m.Body, ntfyLimit),
 		Title:    m.Title,
 		Priority: ntfyPriority(m.Priority),
 	}
-	return postJSON(ctx, strings.TrimRight(n.Server, "/")+"/", header, msg)
+	// Publishing JSON to the server root, rather than a plain body with
+	// a Title header, keeps non-ASCII titles intact.
+	r, err := jsonRequest(strings.TrimRight(n.Server, "/")+"/", msg)
+	if err != nil {
+		return nil, err
+	}
+	if n.Token != "" {
+		r.header.Set("Authorization", "Bearer "+n.Token)
+	}
+	return r, nil
 }
 
 // ntfyPriority maps onto ntfy's scale of 1 (min) to 5 (max). Zero is

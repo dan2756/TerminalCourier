@@ -37,6 +37,15 @@ func (d *Desktop) Send(ctx context.Context, m Message) error {
 	return d.run(ctx, name, args...)
 }
 
+// Preview prints the command line Send would run.
+func (d *Desktop) Preview(m Message) (string, error) {
+	name, args, err := d.command(m)
+	if err != nil {
+		return "", err
+	}
+	return shellJoin(append([]string{name}, args...)) + "\n", nil
+}
+
 // command returns the program and arguments that display m.
 func (d *Desktop) command(m Message) (string, []string, error) {
 	title := m.Title
@@ -98,6 +107,27 @@ func appleScriptString(s string) string {
 	}
 	b.WriteByte('"')
 	return b.String()
+}
+
+// shellJoin quotes args for display as a shell command line.
+func shellJoin(args []string) string {
+	quoted := make([]string, len(args))
+	for i, a := range args {
+		if a != "" && strings.IndexFunc(a, needsQuote) < 0 {
+			quoted[i] = a
+		} else {
+			quoted[i] = "'" + strings.ReplaceAll(a, "'", `'\''`) + "'"
+		}
+	}
+	return strings.Join(quoted, " ")
+}
+
+func needsQuote(r rune) bool {
+	switch {
+	case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9':
+		return false
+	}
+	return !strings.ContainsRune("-_=+.,/:@%", r)
 }
 
 func runCommand(ctx context.Context, name string, args ...string) error {
