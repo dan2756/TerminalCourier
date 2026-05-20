@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"maps"
@@ -70,7 +71,7 @@ func (r *request) String() string {
 func (r *request) send(ctx context.Context) error {
 	req, err := http.NewRequestWithContext(ctx, r.method, r.url, bytes.NewReader(r.body))
 	if err != nil {
-		return err
+		return scrubURL(err)
 	}
 	for k, vs := range r.header {
 		req.Header[k] = vs
@@ -78,7 +79,7 @@ func (r *request) send(ctx context.Context) error {
 	req.Header.Set("User-Agent", "notify/"+versionString())
 	resp, err := httpClient.Do(req)
 	if err != nil {
-		return err
+		return scrubURL(err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
@@ -105,6 +106,19 @@ func previewRequest(build func(Message) (*request, error), m Message) (string, e
 		return "", err
 	}
 	return r.String(), nil
+}
+
+// scrubURL redacts the URL that net/http puts in its errors. For a webhook
+// the URL is the secret, and the error ends up in scrollback and CI logs.
+func scrubURL(err error) error {
+	var ue *url.Error
+	if !errors.As(err, &ue) {
+		return err
+	}
+	if ue.Timeout() {
+		return fmt.Errorf("%s %s: timed out after %v", ue.Op, redactURL(ue.URL), timeout)
+	}
+	return fmt.Errorf("%s %s: %w", ue.Op, redactURL(ue.URL), ue.Err)
 }
 
 // redactURL keeps only the scheme and host of a webhook URL, since the

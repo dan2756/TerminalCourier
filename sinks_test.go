@@ -3,10 +3,13 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestNtfy(t *testing.T) {
@@ -163,5 +166,53 @@ func TestPriorityMapping(t *testing.T) {
 		if got, ok := form["priority"]; ok != tt.pushoverPresent || (ok && got[0] != tt.pushover) {
 			t.Errorf("%v: pushover priority %v, want %q", tt.p, got, tt.pushover)
 		}
+	}
+}
+
+func TestErrorsDoNotLeakWebhook(t *testing.T) {
+	// A server that is gone: the request fails before any response.
+	gone := newCapture(t, http.StatusOK, "ok")
+	gone.Close()
+
+	// A server that never answers. Cleanups run last-in first-out, so the
+	// handler is released before Close waits for it.
+	release := make(chan struct{})
+	slow := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		io.Copy(io.Discard, r.Body)
+		select {
+		case <-r.Context().Done():
+		case <-release:
+		}
+	}))
+	t.Cleanup(slow.Close)
+	t.Cleanup(func() { close(release) })
+
+	tests := []struct {
+		name    string
+		webhook string
+		timeout time.Duration
+		want    string
+	}{
+		{"connection refused", gone.URL + "/services/T0/B0/s3cret", time.Minute, "Post " + gone.URL + "/REDACTED: "},
+		{"timeout", slow.URL + "/services/T0/B0/s3cret", 50 * time.Millisecond, "timed out"},
+		{"bad url", "https://hooks.example.com/s3cret\x7f", time.Minute, "parse REDACTED: "},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), tt.timeout)
+			defer cancel()
+			for _, s := range []Sink{&Slack{Webhook: tt.webhook}, &Discord{Webhook: tt.webhook}} {
+				err := s.Send(ctx, Message{Body: "hi"})
+				if err == nil {
+					t.Fatalf("%s: expected an error", s.Name())
+				}
+				if strings.Contains(err.Error(), "s3cret") {
+					t.Errorf("%s: error leaks the webhook: %v", s.Name(), err)
+				}
+				if !strings.Contains(err.Error(), tt.want) {
+					t.Errorf("%s: error %q does not contain %q", s.Name(), err, tt.want)
+				}
+			}
+		})
 	}
 }
