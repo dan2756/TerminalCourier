@@ -9,7 +9,9 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/signal"
 	"runtime/debug"
+	"syscall"
 	"time"
 )
 
@@ -27,6 +29,7 @@ when there are none:
 
   notify build finished
   make 2>&1 | tail -5 | notify --slack
+  make 2>&1 | notify --tee -t make "build finished" | tee build.log
 
 Sinks:
       --ntfy         push to an ntfy topic
@@ -42,6 +45,7 @@ else every configured sink, else a desktop notification.
 Flags:
   -t, --title TEXT    notification title
   -p, --priority P    low, normal (default) or high
+      --tee           copy stdin to stdout unchanged, to sit in a pipe
   -n, --dry-run       print what would be sent, with secrets redacted
   -c, --config FILE   config file (default ~/.config/notify/config)
   -h, --help          show this help
@@ -75,6 +79,9 @@ type app struct {
 }
 
 func main() {
+	// With --tee, a reader that goes away (| head) shouldn't kill notify
+	// before it sends; writes to stdout just start failing instead.
+	signal.Ignore(syscall.SIGPIPE)
 	a := &app{
 		stdin:   os.Stdin,
 		stdout:  os.Stdout,
@@ -95,6 +102,7 @@ func (a *app) run(args []string) int {
 		to          string
 		configPath  string
 		dryRun      bool
+		tee         bool
 		showVersion bool
 		selected    = map[string]*bool{}
 	)
@@ -107,6 +115,7 @@ func (a *app) run(args []string) int {
 	fs.StringVar(&configPath, "config", "", "")
 	fs.BoolVar(&dryRun, "n", false, "")
 	fs.BoolVar(&dryRun, "dry-run", false, "")
+	fs.BoolVar(&tee, "tee", false, "")
 	fs.BoolVar(&showVersion, "version", false, "")
 	for _, name := range sinkNames {
 		selected[name] = fs.Bool(name, false, "")
@@ -124,10 +133,24 @@ func (a *app) run(args []string) int {
 		return 0
 	}
 
+	var passTo io.Writer
+	if tee {
+		passTo = stdout
+		// Keep stdout for the piped data alone.
+		stdout = stderr
+	}
+	fail := func(err error) int {
+		fmt.Fprintf(stderr, "notify: %v\n", err)
+		if tee && !isTerminal(a.stdin) {
+			// Nothing will be sent, but don't break the pipe.
+			_, _ = io.Copy(&passThrough{w: passTo}, a.stdin)
+		}
+		return 2
+	}
+
 	prio, err := parsePriority(priority)
 	if err != nil {
-		fmt.Fprintf(stderr, "notify: %v\n", err)
-		return 2
+		return fail(err)
 	}
 
 	explicit := configPath != ""
@@ -136,8 +159,7 @@ func (a *app) run(args []string) int {
 	}
 	cfg, err := loadConfig(configPath, explicit, a.getenv)
 	if err != nil {
-		fmt.Fprintf(stderr, "notify: %v\n", err)
-		return 2
+		return fail(err)
 	}
 
 	names := splitList(to)
@@ -148,11 +170,10 @@ func (a *app) run(args []string) int {
 	}
 	sinks, err := selectSinks(names, cfg, a.desktop)
 	if err != nil {
-		fmt.Fprintf(stderr, "notify: %v\n", err)
-		return 2
+		return fail(err)
 	}
 
-	body, err := readMessage(fs.Args(), a.stdin)
+	body, err := readMessage(fs.Args(), a.stdin, passTo)
 	if err != nil {
 		fmt.Fprintf(stderr, "notify: %v\n", err)
 		return 2
@@ -160,7 +181,7 @@ func (a *app) run(args []string) int {
 
 	msg := Message{Title: title, Body: body, Priority: prio}
 	if dryRun {
-		return a.preview(sinks, msg)
+		return preview(stdout, stderr, sinks, msg)
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
@@ -176,19 +197,19 @@ func (a *app) run(args []string) int {
 }
 
 // preview prints what each sink would send, without sending anything.
-func (a *app) preview(sinks []Sink, m Message) int {
+func preview(stdout, stderr io.Writer, sinks []Sink, m Message) int {
 	code := 0
 	for i, s := range sinks {
 		p, err := s.Preview(m)
 		if err != nil {
-			fmt.Fprintf(a.stderr, "notify: %s: %v\n", s.Name(), err)
+			fmt.Fprintf(stderr, "notify: %s: %v\n", s.Name(), err)
 			code = 1
 			continue
 		}
 		if i > 0 {
-			fmt.Fprintln(a.stdout)
+			fmt.Fprintln(stdout)
 		}
-		fmt.Fprintf(a.stdout, "--- %s ---\n%s", s.Name(), p)
+		fmt.Fprintf(stdout, "--- %s ---\n%s", s.Name(), p)
 	}
 	return code
 }

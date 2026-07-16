@@ -67,9 +67,29 @@ Sinks are sent to at once; one failing doesn't stop the others.
 | `--to LIST` | comma-separated sinks |
 | `-t`, `--title TEXT` | notification title |
 | `-p`, `--priority P` | `low`, `normal` (default) or `high` |
+| `--tee` | copy stdin to stdout unchanged, so notify can sit in the middle of a pipe |
 | `-n`, `--dry-run` | print each request instead of sending it, secrets redacted |
 | `-c`, `--config FILE` | read this config file instead |
 | `--version` | print the version |
+
+### In the middle of a pipe
+
+`--tee` passes stdin through to stdout untouched, as it arrives, and sends
+the notification once stdin closes. The message is stdin itself, or the
+arguments if there are any:
+
+```sh
+# see the output live, keep a log, and get pinged with the tail
+make 2>&1 | notify --tee -t make | tee build.log
+
+# get "backup finished" when rsync is done, with its output still shown
+rsync -av src/ dst/ | notify --tee --pushover "backup finished"
+```
+
+If the reader goes away early (`| head`), notify keeps reading so the
+notification is still sent, and if notify can't send at all (no sinks
+configured, say) it still passes everything through. With `--tee`,
+`--dry-run` output goes to stderr.
 
 ### Dry run
 

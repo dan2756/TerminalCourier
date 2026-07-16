@@ -95,7 +95,7 @@ func TestReadMessage(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := readMessage(tt.args, strings.NewReader(tt.stdin))
+			got, err := readMessage(tt.args, strings.NewReader(tt.stdin), nil)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -107,7 +107,7 @@ func TestReadMessage(t *testing.T) {
 }
 
 func TestReadMessageEmpty(t *testing.T) {
-	if _, err := readMessage(nil, strings.NewReader(" \n\n")); err == nil {
+	if _, err := readMessage(nil, strings.NewReader(" \n\n"), nil); err == nil {
 		t.Fatal("expected an error for an empty message")
 	}
 }
