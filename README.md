@@ -59,7 +59,11 @@ notify --to slack,ntfy "backup done"
 
 With no sink selected, notify uses `default`, or else every configured
 sink, or else (with nothing configured at all) a desktop notification.
-Sinks are sent to at once; one failing doesn't stop the others.
+Sinks are sent to at once, each with a 10 second timeout; one failing
+doesn't stop the others.
+
+Flags go before the message. Use `--` if the message itself starts with a
+dash: `notify -t cron -- --dry-run finished`.
 
 | Flag | |
 | --- | --- |
@@ -79,8 +83,8 @@ the notification once stdin closes. The message is stdin itself, or the
 arguments if there are any:
 
 ```sh
-# see the output live, keep a log, and get pinged with the tail
-make 2>&1 | notify --tee -t make | tee build.log
+# see the output live, keep a log, and get it on Slack as well
+make 2>&1 | notify --tee --slack -t make | tee build.log
 
 # get "backup finished" when rsync is done, with its output still shown
 rsync -av src/ dst/ | notify --tee --pushover "backup finished"
@@ -135,12 +139,20 @@ an ellipsis instead of having them rejected:
 
 Pipe through `tail` to send the end of a long log rather than its start.
 
+### Formatting
+
+The title is shown as a bold first line on Slack and Discord and as the
+notification title elsewhere. On Slack, `&`, `<` and `>` are escaped so
+command output shows up as is rather than as links or mentions; on
+Discord, `@everyone` and other mentions in the output never ping anyone.
+
 ## Desktop notifications
 
 `--mac` (or `desktop` in `--to` and `default`) needs no setup. On macOS it
-runs `osascript -e 'display notification ...'`; the title defaults to
-"notify". The first notification may ask for permission for Script Editor
-in System Settings, Notifications.
+runs `osascript -e 'display notification ...'`, with the message escaped
+as an AppleScript string; the title defaults to "notify". macOS shows
+these as coming from Script Editor, so if nothing appears, check that
+Script Editor is allowed in System Settings, Notifications.
 
 On Linux it uses `notify-send` from libnotify (`libnotify-bin` on Debian
 and Ubuntu, `libnotify` elsewhere) and fails with a clear error if that

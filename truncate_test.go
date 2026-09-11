@@ -112,3 +112,35 @@ func TestSinksTruncateToLimit(t *testing.T) {
 		t.Errorf("desktop body is %d characters", utf8.RuneCountInString(body))
 	}
 }
+
+func TestSlackTruncateKeepsEntitiesWhole(t *testing.T) {
+	tests := []struct {
+		in   string
+		max  int
+		want string
+	}{
+		{"ab &amp; cd", 20, "ab &amp; cd"},
+		{"ab &amp; cd", 6, "ab…"},
+		{"ab &amp; cd", 8, "ab…"},
+		{"ab &amp; cd", 9, "ab &amp;…"},
+		{"x&lt;y&gt;", 7, "x&lt;y…"},
+		{"x&lt;y&gt;", 4, "x…"},
+	}
+	for _, tt := range tests {
+		if got := slackTruncate(tt.in, tt.max); got != tt.want {
+			t.Errorf("slackTruncate(%q, %d) = %q, want %q", tt.in, tt.max, got, tt.want)
+		}
+	}
+
+	// Through the sink: the cut lands inside the &lt; for "<".
+	srv := newCapture(t, http.StatusOK, "ok")
+	body := strings.Repeat("x", slackLimit-2) + "<tag>"
+	if err := (&Slack{Webhook: srv.URL}).Send(context.Background(), Message{Body: body}); err != nil {
+		t.Fatal(err)
+	}
+	var s slackMessage
+	json.Unmarshal(srv.body, &s)
+	if want := strings.Repeat("x", slackLimit-2) + ellipsis; s.Text != want {
+		t.Errorf("text ends in %q, want %q", s.Text[len(s.Text)-12:], want[len(want)-12:])
+	}
+}

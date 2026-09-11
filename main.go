@@ -126,6 +126,12 @@ func (a *app) run(args []string) int {
 			return 0
 		}
 		fmt.Fprintf(stderr, "notify: %v\nRun 'notify --help' for usage.\n", err)
+		// Parse past the bad flag as well, so that a --tee after it counts.
+		for fs.Parse(fs.Args()) != nil {
+		}
+		if tee {
+			a.passStdin(stdout)
+		}
 		return 2
 	}
 	if showVersion {
@@ -141,9 +147,8 @@ func (a *app) run(args []string) int {
 	}
 	fail := func(err error) int {
 		fmt.Fprintf(stderr, "notify: %v\n", err)
-		if tee && !isTerminal(a.stdin) {
-			// Nothing will be sent, but don't break the pipe.
-			_, _ = io.Copy(&passThrough{w: passTo}, a.stdin)
+		if tee {
+			a.passStdin(passTo)
 		}
 		return 2
 	}
@@ -194,6 +199,14 @@ func (a *app) run(args []string) int {
 		}
 	}
 	return code
+}
+
+// passStdin copies stdin to w unchanged, for --tee when nothing will be
+// sent, so that notify doesn't break the pipe it sits in.
+func (a *app) passStdin(w io.Writer) {
+	if !isTerminal(a.stdin) {
+		_, _ = io.Copy(&passThrough{w: w}, a.stdin)
+	}
 }
 
 // preview prints what each sink would send, without sending anything.

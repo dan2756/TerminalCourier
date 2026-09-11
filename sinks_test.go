@@ -169,6 +169,48 @@ func TestPriorityMapping(t *testing.T) {
 	}
 }
 
+func TestRedirects(t *testing.T) {
+	tests := []struct {
+		status  int
+		wantErr string // empty if the message should arrive
+	}{
+		{http.StatusMovedPermanently, "redirected with HTTP 301 Moved Permanently"},
+		{http.StatusFound, "redirected with HTTP 302 Found"},
+		{http.StatusSeeOther, "redirected with HTTP 303 See Other"},
+		{http.StatusTemporaryRedirect, ""},
+		{http.StatusPermanentRedirect, ""},
+	}
+	for _, tt := range tests {
+		var got []string
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			b, _ := io.ReadAll(r.Body)
+			got = append(got, r.Method+" "+r.URL.Path+" "+string(b))
+			if r.URL.Path == "/services/T0/B0/s3cret" {
+				http.Redirect(w, r, "/new/s3cret", tt.status)
+			}
+		}))
+		err := (&Slack{Webhook: srv.URL + "/services/T0/B0/s3cret"}).Send(context.Background(), Message{Body: "hi"})
+		srv.Close()
+		if tt.wantErr == "" {
+			if err != nil {
+				t.Errorf("%d: %v", tt.status, err)
+			}
+			if want := `POST /new/s3cret {"text":"hi"}`; len(got) != 2 || got[1] != want {
+				t.Errorf("%d: server got %q, want the POST repeated as %q", tt.status, got, want)
+			}
+			continue
+		}
+		if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+			t.Errorf("%d: err = %v, want %q", tt.status, err, tt.wantErr)
+		} else if strings.Contains(err.Error(), "s3cret") {
+			t.Errorf("%d: error leaks the webhook: %v", tt.status, err)
+		}
+		if len(got) != 1 {
+			t.Errorf("%d: server got %q, want only the first POST", tt.status, got)
+		}
+	}
+}
+
 func TestErrorsDoNotLeakWebhook(t *testing.T) {
 	// A server that is gone: the request fails before any response.
 	gone := newCapture(t, http.StatusOK, "ok")

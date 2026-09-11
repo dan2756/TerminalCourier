@@ -37,8 +37,14 @@ func parsePriority(s string) (Priority, error) {
 	return Normal, fmt.Errorf("invalid priority %q (want low, normal or high)", s)
 }
 
+// maxStdin is how much of stdin is kept for the message: well over the
+// largest service limit (Slack's 40,000 characters, at up to 4 bytes
+// each), so cutting there doesn't change what gets sent.
+const maxStdin = 256 << 10
+
 // readMessage returns the message to send: the arguments joined with
-// spaces, or everything on stdin when there are no arguments.
+// spaces, or what is on stdin when there are no arguments. Only the first
+// maxStdin bytes of stdin are kept, with an ellipsis if there was more.
 //
 // With tee set, stdin is copied to it unchanged as it arrives, and read to
 // the end even when the message comes from the arguments, so that notify
@@ -51,22 +57,34 @@ func readMessage(args []string, stdin io.Reader, tee io.Writer) (string, error) 
 		}
 		readStdin = false // nothing to pass through
 	}
-	var msg string
+	msg := strings.Join(args, " ")
+	cut := false
 	if readStdin {
 		r := stdin
 		if tee != nil {
 			r = io.TeeReader(stdin, &passThrough{w: tee})
 		}
-		b, err := io.ReadAll(r)
+		var err error
+		if len(args) == 0 {
+			var b []byte
+			b, err = io.ReadAll(io.LimitReader(r, maxStdin))
+			msg = string(b)
+		}
+		// Read the rest without keeping it, so that memory use doesn't grow
+		// with how much passes through.
+		var rest int64
+		if err == nil {
+			rest, err = io.Copy(io.Discard, r)
+		}
 		if err != nil {
 			return "", fmt.Errorf("reading stdin: %w", err)
 		}
-		msg = string(b)
-	}
-	if len(args) > 0 {
-		msg = strings.Join(args, " ")
+		cut = len(args) == 0 && rest > 0
 	}
 	msg = clean(msg)
+	if cut {
+		msg += ellipsis
+	}
 	if msg == "" {
 		return "", errors.New("message is empty, nothing to send")
 	}
@@ -77,7 +95,7 @@ func readMessage(args []string, stdin io.Reader, tee io.Writer) (string, error) 
 // output usually carries, keeping any indentation, and replaces invalid
 // UTF-8 so services don't reject the payload.
 func clean(s string) string {
-	s = strings.ToValidUTF8(s, "�")
+	s = strings.ToValidUTF8(s, "\uFFFD")
 	s = strings.TrimRight(s, " \t\r\n")
 	return strings.TrimLeft(s, "\r\n")
 }

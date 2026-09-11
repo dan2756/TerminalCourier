@@ -14,7 +14,20 @@ import (
 	"strings"
 )
 
-var httpClient = &http.Client{Timeout: timeout}
+var httpClient = &http.Client{Timeout: timeout, CheckRedirect: checkRedirect}
+
+// checkRedirect follows a redirect only if it keeps the method. On a 301,
+// 302 or 303, net/http would follow a POST with a GET that has no body,
+// which loses the message but still gets a 2xx from most servers.
+func checkRedirect(req *http.Request, via []*http.Request) error {
+	if req.Method != via[0].Method {
+		return fmt.Errorf("redirected with HTTP %s, which would drop the message; use the URL it redirects to", req.Response.Status)
+	}
+	if len(via) >= 10 {
+		return errors.New("stopped after 10 redirects")
+	}
+	return nil
+}
 
 // redacted stands in for secrets in --dry-run output.
 const redacted = "REDACTED"

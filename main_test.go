@@ -91,7 +91,7 @@ func TestReadMessage(t *testing.T) {
 		{"args", []string{"build", "finished"}, "ignored", "build finished"},
 		{"stdin", nil, "line one\nline two\n", "line one\nline two"},
 		{"trims blank lines", nil, "\n\n  indented\n\n\n", "  indented"},
-		{"invalid utf-8", nil, "bad \xff byte", "bad � byte"},
+		{"invalid utf-8", nil, "bad \xff byte", "bad \uFFFD byte"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

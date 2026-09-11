@@ -52,7 +52,8 @@ func (d *Desktop) command(m Message) (string, []string, error) {
 	if title == "" {
 		title = "notify"
 	}
-	body := truncate(m.Body, desktopLimit)
+	// Piped input (find -print0) may hold NULs, which an argument can't.
+	body := truncate(strings.ReplaceAll(m.Body, "\x00", ""), desktopLimit)
 	if d.goos == "darwin" {
 		return "osascript", []string{"-e", appleScript(title, body, m.Priority)}, nil
 	}
