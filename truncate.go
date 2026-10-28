@@ -15,6 +15,7 @@ const (
 	pushoverLimit      = 1024  // characters of message
 	pushoverTitleLimit = 250   // characters of title
 	ntfyLimit          = 4096  // bytes of message
+	ntfyTitleLimit     = 1024  // bytes of title; ntfy rejects anything larger
 	desktopLimit       = 1024  // characters; also keeps argv to a sane size
 )
 

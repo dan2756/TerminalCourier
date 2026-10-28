@@ -134,7 +134,7 @@ an ellipsis instead of having them rejected:
 | Slack | 40,000 characters |
 | Discord | 2,000 characters (title included) |
 | Pushover | 1,024 characters, title 250 |
-| ntfy | 4,096 bytes |
+| ntfy | 4,096 bytes, title 1,024 bytes |
 | desktop | 1,024 characters |
 
 Pipe through `tail` to send the end of a long log rather than its start.

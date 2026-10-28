@@ -113,6 +113,34 @@ func TestSinksTruncateToLimit(t *testing.T) {
 	}
 }
 
+func TestNtfyTruncatesTitle(t *testing.T) {
+	srv := newCapture(t, http.StatusOK, "{}")
+	// "ö" is two bytes, so this is well over ntfy's 1024-byte title limit.
+	title := strings.Repeat("ö", 800)
+	err := (&Ntfy{Server: srv.URL, Topic: "x"}).Send(context.Background(), Message{Title: title, Body: "hi"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var n ntfyMessage
+	if err := json.Unmarshal(srv.body, &n); err != nil {
+		t.Fatal(err)
+	}
+	if len(n.Title) > ntfyTitleLimit || !strings.HasSuffix(n.Title, ellipsis) || !utf8.ValidString(n.Title) {
+		t.Errorf("title = %q (%d bytes)", n.Title, len(n.Title))
+	}
+
+	short := "Bau ✓"
+	if err := (&Ntfy{Server: srv.URL, Topic: "x"}).Send(context.Background(), Message{Title: short, Body: "hi"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(srv.body, &n); err != nil {
+		t.Fatal(err)
+	}
+	if n.Title != short {
+		t.Errorf("short title = %q, want %q", n.Title, short)
+	}
+}
+
 func TestSlackTruncateKeepsEntitiesWhole(t *testing.T) {
 	tests := []struct {
 		in   string
