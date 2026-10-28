@@ -20,6 +20,9 @@ var httpClient = &http.Client{Timeout: timeout, CheckRedirect: checkRedirect}
 // 302 or 303, net/http would follow a POST with a GET that has no body,
 // which loses the message but still gets a 2xx from most servers.
 func checkRedirect(req *http.Request, via []*http.Request) error {
+	// net/http sets Referer to the URL we just called. For a webhook that
+	// URL is the secret, so it must not be forwarded to the next host.
+	req.Header.Del("Referer")
 	if req.Method != via[0].Method {
 		return fmt.Errorf("redirected with HTTP %s, which would drop the message; use the URL it redirects to", req.Response.Status)
 	}

@@ -181,16 +181,22 @@ func TestRedirects(t *testing.T) {
 		{http.StatusPermanentRedirect, ""},
 	}
 	for _, tt := range tests {
-		var got []string
+		var got, referers []string
 		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			b, _ := io.ReadAll(r.Body)
 			got = append(got, r.Method+" "+r.URL.Path+" "+string(b))
+			referers = append(referers, r.Referer())
 			if r.URL.Path == "/services/T0/B0/s3cret" {
 				http.Redirect(w, r, "/new/s3cret", tt.status)
 			}
 		}))
 		err := (&Slack{Webhook: srv.URL + "/services/T0/B0/s3cret"}).Send(context.Background(), Message{Body: "hi"})
 		srv.Close()
+		for _, ref := range referers {
+			if strings.Contains(ref, "s3cret") {
+				t.Errorf("%d: Referer %q leaks the webhook", tt.status, ref)
+			}
+		}
 		if tt.wantErr == "" {
 			if err != nil {
 				t.Errorf("%d: %v", tt.status, err)
