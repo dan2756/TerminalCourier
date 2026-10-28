@@ -45,7 +45,7 @@ func (n *Ntfy) request(m Message) (*request, error) {
 	msg := ntfyMessage{
 		Topic:    n.Topic,
 		Message:  truncateBytes(m.Body, ntfyLimit),
-		Title:    m.Title,
+		Title:    truncateBytes(m.Title, ntfyTitleLimit),
 		Priority: ntfyPriority(m.Priority),
 	}
 	// Publishing JSON to the server root, rather than a plain body with
