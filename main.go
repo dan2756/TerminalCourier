@@ -121,13 +121,22 @@ func (a *app) run(args []string) int {
 		selected[name] = fs.Bool(name, false, "")
 	}
 	if err := fs.Parse(args); err != nil {
-		if errors.Is(err, flag.ErrHelp) {
-			fmt.Fprint(stdout, usage)
-			return 0
+		help := errors.Is(err, flag.ErrHelp)
+		if !help {
+			fmt.Fprintf(stderr, "notify: %v\nRun 'notify --help' for usage.\n", err)
 		}
-		fmt.Fprintf(stderr, "notify: %v\nRun 'notify --help' for usage.\n", err)
 		// Parse past the bad flag as well, so that a --tee after it counts.
 		for fs.Parse(fs.Args()) != nil {
+		}
+		if help {
+			out := stdout
+			if tee {
+				// Keep stdout for the piped data alone.
+				out = stderr
+				a.passStdin(stdout)
+			}
+			fmt.Fprint(out, usage)
+			return 0
 		}
 		if tee {
 			a.passStdin(stdout)
@@ -135,7 +144,12 @@ func (a *app) run(args []string) int {
 		return 2
 	}
 	if showVersion {
-		fmt.Fprintln(stdout, "notify", versionString())
+		out := stdout
+		if tee {
+			out = stderr
+			a.passStdin(stdout)
+		}
+		fmt.Fprintln(out, "notify", versionString())
 		return 0
 	}
 

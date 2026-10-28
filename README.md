@@ -93,7 +93,7 @@ rsync -av src/ dst/ | notify --tee --pushover "backup finished"
 If the reader goes away early (`| head`), notify keeps reading so the
 notification is still sent, and if notify can't send at all (no sinks
 configured, say) it still passes everything through. With `--tee`,
-`--dry-run` output goes to stderr.
+`--dry-run`, `--help` and `--version` write to stderr.
 
 ### Dry run
 
