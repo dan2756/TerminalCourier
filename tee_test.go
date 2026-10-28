@@ -80,6 +80,40 @@ func TestRunTeePassesThroughOnBadFlag(t *testing.T) {
 	}
 }
 
+func TestRunTeeHelpAndVersionPassStdin(t *testing.T) {
+	tests := []struct {
+		args []string
+		want string
+	}{
+		{[]string{"--tee", "--help"}, "Usage: notify"},
+		{[]string{"--help", "--tee"}, "Usage: notify"},
+		{[]string{"-h", "--tee"}, "Usage: notify"},
+		{[]string{"--tee", "--version"}, "notify " + versionString()},
+		{[]string{"--version", "--tee"}, "notify " + versionString()},
+	}
+	for _, tt := range tests {
+		var stdout, stderr bytes.Buffer
+		if code := run(tt.args, strings.NewReader(buildLog), &stdout, &stderr, envMap(nil)); code != 0 {
+			t.Errorf("%v: exit %d, stderr %s", tt.args, code, stderr.String())
+		}
+		if stdout.String() != buildLog {
+			t.Errorf("%v: stdout = %q, want stdin unchanged", tt.args, stdout.String())
+		}
+		if !strings.Contains(stderr.String(), tt.want) {
+			t.Errorf("%v: stderr %q, want %q", tt.args, stderr.String(), tt.want)
+		}
+	}
+
+	// Without --tee, help and version stay on stdout and stdin is left alone.
+	var stdout, stderr bytes.Buffer
+	if code := run([]string{"--version"}, strings.NewReader(buildLog), &stdout, &stderr, envMap(nil)); code != 0 {
+		t.Fatalf("exit %d", code)
+	}
+	if stdout.String() != "notify "+versionString()+"\n" || stderr.Len() != 0 {
+		t.Errorf("stdout %q stderr %q", stdout.String(), stderr.String())
+	}
+}
+
 func TestRunTeeDryRunUsesStderr(t *testing.T) {
 	env := envMap(map[string]string{"NOTIFY_SLACK_WEBHOOK": "https://hooks.slack.com/services/T0/B0/X"})
 	var stdout, stderr bytes.Buffer
