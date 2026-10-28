@@ -112,6 +112,44 @@ func TestReadMessageEmpty(t *testing.T) {
 	}
 }
 
+func TestIsTerminal(t *testing.T) {
+	if null, err := os.Open("/dev/null"); err != nil {
+		t.Logf("/dev/null: %v", err)
+	} else {
+		defer null.Close()
+		if isTerminal(null) {
+			t.Error("/dev/null is a character device, not a terminal")
+		}
+		_, err = readMessage(nil, null, nil)
+		if err == nil || err.Error() != "message is empty, nothing to send" {
+			t.Errorf("readMessage(/dev/null) = %v", err)
+		}
+	}
+
+	pr, pw, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pr.Close()
+	defer pw.Close()
+	if isTerminal(pr) {
+		t.Error("a pipe is not a terminal")
+	}
+	if isTerminal(strings.NewReader("hi")) {
+		t.Error("a non-file reader is not a terminal")
+	}
+
+	ptmx, err := os.OpenFile("/dev/ptmx", os.O_RDWR, 0)
+	if err != nil {
+		t.Logf("no pty available: %v", err)
+		return
+	}
+	defer ptmx.Close()
+	if !isTerminal(ptmx) {
+		t.Error("pty master should be a terminal")
+	}
+}
+
 func TestRunSlack(t *testing.T) {
 	srv := newCapture(t, http.StatusOK, "ok")
 	var stdout, stderr bytes.Buffer
