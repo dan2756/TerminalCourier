@@ -79,7 +79,9 @@ func parseConfig(r io.Reader, name string) (config, error) {
 	c := config{}
 	sc := bufio.NewScanner(r)
 	for n := 1; sc.Scan(); n++ {
-		line := strings.TrimSpace(sc.Text())
+		// A leading BOM (common when a config is saved from a Windows editor)
+		// would otherwise make the first key look unknown.
+		line := strings.TrimSpace(strings.TrimPrefix(sc.Text(), "\uFEFF"))
 		if line == "" || line[0] == '#' || line[0] == ';' {
 			continue
 		}

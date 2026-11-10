@@ -53,6 +53,18 @@ func TestParseValue(t *testing.T) {
 	}
 }
 
+func TestParseConfigBOM(t *testing.T) {
+	in := "\ufeff# saved with a BOM\ndefault = slack\nslack_webhook = https://hooks.example/abc\n"
+	got, err := parseConfig(strings.NewReader(in), "cfg")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := config{"default": "slack", "slack_webhook": "https://hooks.example/abc"}
+	if !maps.Equal(got, want) {
+		t.Errorf("got %v, want %v", got, want)
+	}
+}
+
 func TestParseConfigErrors(t *testing.T) {
 	tests := []struct {
 		in, want string
