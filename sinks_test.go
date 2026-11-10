@@ -217,6 +217,65 @@ func TestRedirects(t *testing.T) {
 	}
 }
 
+func TestRedirectRejectsHTTPSDowngrade(t *testing.T) {
+	var hits []string
+	plain := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits = append(hits, "plain "+r.URL.Path)
+		w.WriteHeader(http.StatusOK)
+	}))
+	t.Cleanup(plain.Close)
+
+	tlsSrv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		io.Copy(io.Discard, r.Body)
+		hits = append(hits, "tls "+r.URL.Path)
+		if r.URL.Path == "/services/T0/B0/s3cret" {
+			http.Redirect(w, r, plain.URL+"/services/T0/B0/s3cret", http.StatusTemporaryRedirect)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	t.Cleanup(tlsSrv.Close)
+
+	old := httpClient.Transport
+	httpClient.Transport = tlsSrv.Client().Transport
+	t.Cleanup(func() { httpClient.Transport = old })
+
+	err := (&Slack{Webhook: tlsSrv.URL + "/services/T0/B0/s3cret"}).Send(context.Background(), Message{Body: "hi"})
+	if err == nil || !strings.Contains(err.Error(), "non-https") {
+		t.Fatalf("err = %v, want the https downgrade refused", err)
+	}
+	if strings.Contains(err.Error(), "s3cret") {
+		t.Errorf("error leaks the webhook: %v", err)
+	}
+	if strings.Join(hits, " ") != "tls /services/T0/B0/s3cret" {
+		t.Errorf("requests = %q, want only the original https POST", hits)
+	}
+}
+
+func TestRedirectKeepsHTTPS(t *testing.T) {
+	var got []string
+	tlsSrv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		got = append(got, r.Method+" "+r.URL.Path+" "+string(b))
+		if r.URL.Path == "/services/T0/B0/s3cret" {
+			http.Redirect(w, r, "/new/s3cret", http.StatusTemporaryRedirect)
+		}
+	}))
+	t.Cleanup(tlsSrv.Close)
+
+	old := httpClient.Transport
+	httpClient.Transport = tlsSrv.Client().Transport
+	t.Cleanup(func() { httpClient.Transport = old })
+
+	err := (&Slack{Webhook: tlsSrv.URL + "/services/T0/B0/s3cret"}).Send(context.Background(), Message{Body: "hi"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := `POST /new/s3cret {"text":"hi"}`; len(got) != 2 || got[1] != want {
+		t.Errorf("server got %q, want the POST repeated as %q", got, want)
+	}
+}
+
 func TestErrorsDoNotLeakWebhook(t *testing.T) {
 	// A server that is gone: the request fails before any response.
 	gone := newCapture(t, http.StatusOK, "ok")
