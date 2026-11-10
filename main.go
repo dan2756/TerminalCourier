@@ -61,6 +61,7 @@ in the environment as NOTIFY_<KEY>, which overrides the file:
   ntfy_token        ntfy access token, for protected topics
   pushover_token    Pushover application API token
   pushover_user     Pushover user or group key
+  pushover_url      Pushover API endpoint (default https://api.pushover.net/1/messages.json)
   slack_webhook     Slack incoming webhook URL
   discord_webhook   Discord webhook URL
 
