@@ -282,6 +282,9 @@ func TestRunUsage(t *testing.T) {
 	if !strings.Contains(stdout.String(), "Usage: notify") {
 		t.Errorf("--help printed %q", stdout.String())
 	}
+	if !strings.Contains(stdout.String(), "pushover_url") {
+		t.Errorf("--help does not mention pushover_url:\n%s", stdout.String())
+	}
 	if code := run([]string{"--bogus"}, nil, &stdout, &stderr, envMap(nil)); code != 2 {
 		t.Errorf("unknown flag exited %d, want 2", code)
 	}
