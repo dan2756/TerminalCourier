@@ -64,14 +64,14 @@ func TestDesktopLinux(t *testing.T) {
 	}
 }
 
-func TestDesktopDropsNUL(t *testing.T) {
+func TestDesktopReplacesNUL(t *testing.T) {
 	// As from find -print0: exec can't pass a NUL in an argument.
 	d := newFakeDesktop()
 	if err := d.Send(context.Background(), Message{Body: "a\x00b"}); err != nil {
 		t.Fatal(err)
 	}
-	if body := d.calls[0][len(d.calls[0])-1]; body != "ab" {
-		t.Errorf("body = %q, want %q", body, "ab")
+	if body := d.calls[0][len(d.calls[0])-1]; body != "a\nb" {
+		t.Errorf("body = %q, want %q", body, "a\nb")
 	}
 	if err := runCommand(context.Background(), "true", d.calls[0][1:]...); err != nil {
 		t.Errorf("running with these arguments: %v", err)

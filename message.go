@@ -92,9 +92,12 @@ func readMessage(args []string, stdin io.Reader, tee io.Writer) (string, error) 
 
 // clean drops the leading blank lines and trailing whitespace that command
 // output usually carries, keeping any indentation, and replaces invalid
-// UTF-8 so services don't reject the payload.
+// UTF-8 so services don't reject the payload. NUL bytes, as from find
+// -print0, are turned into newlines: a desktop notifier can't take them in
+// an argument, and gluing the records together would hide where each ended.
 func clean(s string) string {
 	s = strings.ToValidUTF8(s, "\uFFFD")
+	s = strings.ReplaceAll(s, "\x00", "\n")
 	s = strings.TrimRight(s, " \t\r\n")
 	return strings.TrimLeft(s, "\r\n")
 }
