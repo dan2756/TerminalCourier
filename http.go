@@ -16,13 +16,19 @@ import (
 
 var httpClient = &http.Client{Timeout: timeout, CheckRedirect: checkRedirect}
 
-// checkRedirect follows a redirect only if it keeps the method. On a 301,
-// 302 or 303, net/http would follow a POST with a GET that has no body,
-// which loses the message but still gets a 2xx from most servers.
+// checkRedirect follows a redirect only if it keeps the method and stays
+// on https. On a 301, 302 or 303, net/http would follow a POST with a GET
+// that has no body, which loses the message but still gets a 2xx from most
+// servers. A hop from https to http would send the webhook path, and any
+// Authorization token, in cleartext; same-host redirects still copy that
+// header.
 func checkRedirect(req *http.Request, via []*http.Request) error {
 	// net/http sets Referer to the URL we just called. For a webhook that
 	// URL is the secret, so it must not be forwarded to the next host.
 	req.Header.Del("Referer")
+	if via[0].URL != nil && via[0].URL.Scheme == "https" && (req.URL == nil || req.URL.Scheme != "https") {
+		return errors.New("refusing to follow a redirect from https to a non-https URL")
+	}
 	if req.Method != via[0].Method {
 		return fmt.Errorf("redirected with HTTP %s, which would drop the message; use the URL it redirects to", req.Response.Status)
 	}
