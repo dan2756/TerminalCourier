@@ -92,6 +92,7 @@ func TestReadMessage(t *testing.T) {
 		{"stdin", nil, "line one\nline two\n", "line one\nline two"},
 		{"trims blank lines", nil, "\n\n  indented\n\n\n", "  indented"},
 		{"invalid utf-8", nil, "bad \xff byte", "bad \uFFFD byte"},
+		{"nul separates records", nil, "src/a\x00src/b\x00", "src/a\nsrc/b"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -107,8 +108,10 @@ func TestReadMessage(t *testing.T) {
 }
 
 func TestReadMessageEmpty(t *testing.T) {
-	if _, err := readMessage(nil, strings.NewReader(" \n\n"), nil); err == nil {
-		t.Fatal("expected an error for an empty message")
+	for _, in := range []string{" \n\n", "\x00\x00"} {
+		if _, err := readMessage(nil, strings.NewReader(in), nil); err == nil {
+			t.Fatalf("expected an error for an empty message %q", in)
+		}
 	}
 }
 
