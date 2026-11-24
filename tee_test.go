@@ -57,6 +57,36 @@ func TestRunTeePassesThroughOnError(t *testing.T) {
 	}
 }
 
+func TestRunMalformedFlag(t *testing.T) {
+	tests := [][]string{
+		{"---bogus"},
+		{"---bogus", "--tee"},
+		{"--tee", "---bogus"},
+		{"---a", "--tee", "---b"},
+		{"-=x", "--tee"},
+		{"--=slack", "--tee"},
+	}
+	for _, args := range tests {
+		var stdout, stderr bytes.Buffer
+		code := run(args, strings.NewReader(buildLog), &stdout, &stderr, envMap(nil))
+		if code != 2 {
+			t.Errorf("%v: exit %d, want 2; stderr %q", args, code, stderr.String())
+		}
+		if !strings.Contains(stderr.String(), "bad flag syntax") {
+			t.Errorf("%v: stderr %q, want the bad flag syntax", args, stderr.String())
+		}
+		wantOut := ""
+		for _, a := range args {
+			if a == "--tee" {
+				wantOut = buildLog
+			}
+		}
+		if stdout.String() != wantOut {
+			t.Errorf("%v: stdout %q, want %q", args, stdout.String(), wantOut)
+		}
+	}
+}
+
 func TestRunTeePassesThroughOnBadFlag(t *testing.T) {
 	tests := []struct {
 		args []string
