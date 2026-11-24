@@ -127,7 +127,16 @@ func (a *app) run(args []string) int {
 			fmt.Fprintf(stderr, "notify: %v\nRun 'notify --help' for usage.\n", err)
 		}
 		// Parse past the bad flag as well, so that a --tee after it counts.
-		for fs.Parse(fs.Args()) != nil {
+		// A malformed flag (---x, -=x) is left unconsumed; drop it or this
+		// loop never ends.
+		for len(fs.Args()) > 0 {
+			rest := fs.Args()
+			if fs.Parse(rest) == nil {
+				break
+			}
+			if len(fs.Args()) == len(rest) {
+				fs.Parse(rest[1:])
+			}
 		}
 		if help {
 			out := stdout
