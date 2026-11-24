@@ -80,9 +80,6 @@ type app struct {
 }
 
 func main() {
-	// With --tee, a reader that goes away (| head) shouldn't kill notify
-	// before it sends; writes to stdout just start failing instead.
-	signal.Ignore(syscall.SIGPIPE)
 	a := &app{
 		stdin:   os.Stdin,
 		stdout:  os.Stdout,
@@ -138,6 +135,9 @@ func (a *app) run(args []string) int {
 				fs.Parse(rest[1:])
 			}
 		}
+		if tee {
+			ignoreSIGPIPE()
+		}
 		if help {
 			out := stdout
 			if tee {
@@ -152,6 +152,9 @@ func (a *app) run(args []string) int {
 			a.passStdin(stdout)
 		}
 		return 2
+	}
+	if tee {
+		ignoreSIGPIPE()
 	}
 	if showVersion {
 		out := stdout
@@ -223,6 +226,14 @@ func (a *app) run(args []string) int {
 		}
 	}
 	return code
+}
+
+// ignoreSIGPIPE is for --tee. A reader that exits early (| head) would
+// otherwise kill notify on the next write to stdout, before it sends.
+// Other modes leave the signal alone, so a closed pipe still ends the
+// process the way it does for other command-line tools.
+func ignoreSIGPIPE() {
+	signal.Ignore(syscall.SIGPIPE)
 }
 
 // passStdin copies stdin to w unchanged, for --tee when nothing will be
