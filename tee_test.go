@@ -4,10 +4,14 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
+	"os"
+	"os/exec"
 	"runtime"
 	"strings"
+	"syscall"
 	"testing"
 	"testing/iotest"
 )
@@ -38,6 +42,77 @@ func TestRunTee(t *testing.T) {
 			json.Unmarshal(slack.body, &got)
 			if got.Text != tt.want {
 				t.Errorf("sent %q, want %q", got.Text, tt.want)
+			}
+		})
+	}
+}
+
+// TestClosedStdout checks that a closed stdout kills notify, and that
+// --tee survives it so the notification can still be sent. Each case
+// runs in a child process: once SIGPIPE is ignored it stays ignored.
+func TestClosedStdout(t *testing.T) {
+	mode := os.Getenv("NOTIFY_STDOUT_MODE")
+	if mode != "" {
+		// Wait until the parent has closed the read end of stdout.
+		_, _ = io.Copy(io.Discard, os.Stdin)
+		var stderr bytes.Buffer
+		var args []string
+		var in io.Reader
+		switch mode {
+		case "plain":
+			args = []string{"--version"}
+		case "tee":
+			args = []string{"--tee", "--version"}
+			in = strings.NewReader(buildLog)
+		default:
+			fmt.Fprintf(os.Stderr, "unknown mode %s\n", mode)
+			os.Exit(2)
+		}
+		code := run(args, in, os.Stdout, &stderr, envMap(nil))
+		fmt.Fprintf(os.Stderr, "code=%d\n%s", code, stderr.String())
+		os.Exit(code)
+	}
+
+	for _, mode := range []string{"plain", "tee"} {
+		t.Run(mode, func(t *testing.T) {
+			r, w, err := os.Pipe()
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer r.Close()
+			defer w.Close()
+			cmd := exec.Command(os.Args[0], "-test.run=^TestClosedStdout$")
+			cmd.Env = append(os.Environ(), "NOTIFY_STDOUT_MODE="+mode)
+			cmd.Stdout = w
+			stdin, err := cmd.StdinPipe()
+			if err != nil {
+				t.Fatal(err)
+			}
+			var stderr bytes.Buffer
+			cmd.Stderr = &stderr
+			if err := cmd.Start(); err != nil {
+				t.Fatal(err)
+			}
+			w.Close()
+			r.Close() // the child's next write to stdout is EPIPE
+			stdin.Close()
+			err = cmd.Wait()
+			if mode == "tee" {
+				if err != nil {
+					t.Fatalf("--tee died from a closed stdout: %v\n%s", err, stderr.String())
+				}
+				if !strings.Contains(stderr.String(), "notify "+versionString()) {
+					t.Fatalf("stderr %q, want the version", stderr.String())
+				}
+				return
+			}
+			var ee *exec.ExitError
+			if !errors.As(err, &ee) {
+				t.Fatalf("closed stdout exited %v, want SIGPIPE\n%s", err, stderr.String())
+			}
+			ws, ok := ee.Sys().(syscall.WaitStatus)
+			if !ok || !ws.Signaled() || ws.Signal() != syscall.SIGPIPE {
+				t.Fatalf("closed stdout status %v, want SIGPIPE\n%s", ee.Sys(), stderr.String())
 			}
 		})
 	}
