@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"slices"
 	"strings"
+	"unicode"
 )
 
 var httpClient = &http.Client{Timeout: timeout, CheckRedirect: checkRedirect}
@@ -30,7 +31,7 @@ func checkRedirect(req *http.Request, via []*http.Request) error {
 		return errors.New("refusing to follow a redirect from https to a non-https URL")
 	}
 	if req.Method != via[0].Method {
-		return fmt.Errorf("redirected with HTTP %s, which would drop the message; use the URL it redirects to", req.Response.Status)
+		return fmt.Errorf("redirected with HTTP %s, which would drop the message; use the URL it redirects to", oneLine(req.Response.Status))
 	}
 	if len(via) >= 10 {
 		return errors.New("stopped after 10 redirects")
@@ -160,15 +161,29 @@ type httpError struct {
 }
 
 func (e *httpError) Error() string {
+	status := oneLine(e.Status)
 	if e.Detail == "" {
-		return "HTTP " + e.Status
+		return "HTTP " + status
 	}
-	return fmt.Sprintf("HTTP %s: %s", e.Status, e.Detail)
+	return fmt.Sprintf("HTTP %s: %s", status, oneLine(e.Detail))
+}
+
+// oneLine flattens s to a single line and drops control characters. Error
+// text from a server is printed to the terminal, and a status or body that
+// contains ESC or CR would otherwise rewrite the display.
+func oneLine(s string) string {
+	s = strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) {
+			return ' '
+		}
+		return r
+	}, s)
+	return strings.Join(strings.Fields(s), " ")
 }
 
 // errorDetail pulls a short, single-line reason out of an error response.
 // JSON bodies from Pushover ("errors"), Discord ("message") and ntfy
-// ("error") are reduced to their reason; anything else is used as is.
+// ("error") are reduced to their reason; anything else is the body text.
 func errorDetail(body []byte) string {
 	var v struct {
 		Errors  []string `json:"errors"`
@@ -179,11 +194,11 @@ func errorDetail(body []byte) string {
 	_ = json.Unmarshal(body, &v)
 	switch {
 	case len(v.Errors) > 0:
-		return strings.Join(v.Errors, "; ")
+		return oneLine(strings.Join(v.Errors, "; "))
 	case v.Message != "":
-		return v.Message
+		return oneLine(v.Message)
 	case v.Error != "":
-		return v.Error
+		return oneLine(v.Error)
 	}
-	return truncate(strings.Join(strings.Fields(string(body)), " "), 200)
+	return truncate(oneLine(string(body)), 200)
 }

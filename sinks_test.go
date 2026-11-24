@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -166,6 +167,84 @@ func TestPriorityMapping(t *testing.T) {
 		if got, ok := form["priority"]; ok != tt.pushoverPresent || (ok && got[0] != tt.pushover) {
 			t.Errorf("%v: pushover priority %v, want %q", tt.p, got, tt.pushover)
 		}
+	}
+}
+
+func TestOneLine(t *testing.T) {
+	tests := map[string]string{
+		"plain":               "plain",
+		"a  b":                "a b",
+		"  spaced  ":          "spaced",
+		"line\nbreak":         "line break",
+		"nope\x1b[2J\rhidden": "nope [2J hidden",
+		"\x1b\x1b":            "",
+		"":                    "",
+	}
+	for in, want := range tests {
+		if got := oneLine(in); got != want {
+			t.Errorf("oneLine(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+func TestHTTPErrorStripsControls(t *testing.T) {
+	srv := newCapture(t, http.StatusBadRequest, "{\"message\":\"nope\\u001b[2J\\rhidden\"}")
+	err := (&Slack{Webhook: srv.URL}).Send(context.Background(), Message{Body: "hi"})
+	if err == nil {
+		t.Fatal("expected an error")
+	}
+	if strings.ContainsAny(err.Error(), "\x1b\r\n") {
+		t.Errorf("error contains control characters: %q", err.Error())
+	}
+	if want := "HTTP 400 Bad Request: nope [2J hidden"; err.Error() != want {
+		t.Errorf("error = %q, want %q", err.Error(), want)
+	}
+
+	plain := newCapture(t, http.StatusBadGateway, "upstream\x1b[31m down")
+	err = (&Discord{Webhook: plain.URL}).Send(context.Background(), Message{Body: "hi"})
+	if err == nil {
+		t.Fatal("expected an error")
+	}
+	if strings.Contains(err.Error(), "\x1b") {
+		t.Errorf("error contains ESC: %q", err.Error())
+	}
+	if want := "HTTP 502 Bad Gateway: upstream [31m down"; err.Error() != want {
+		t.Errorf("error = %q, want %q", err.Error(), want)
+	}
+}
+
+func TestHTTPStatusStripsControls(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { ln.Close() })
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		c, err := ln.Accept()
+		if err != nil {
+			return
+		}
+		defer c.Close()
+		buf := make([]byte, 2048)
+		_, _ = c.Read(buf)
+		_, _ = c.Write([]byte("HTTP/1.1 500 Nope\x1b[2J\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"))
+	}()
+
+	err = (&Slack{Webhook: "http://" + ln.Addr().String() + "/services/T0/B0/s3cret"}).Send(context.Background(), Message{Body: "hi"})
+	<-done
+	if err == nil {
+		t.Fatal("expected an error")
+	}
+	if strings.Contains(err.Error(), "\x1b") {
+		t.Errorf("status contains ESC: %q", err.Error())
+	}
+	if strings.Contains(err.Error(), "s3cret") {
+		t.Errorf("error leaks the webhook: %v", err)
+	}
+	if want := "HTTP 500 Nope [2J"; err.Error() != want {
+		t.Errorf("error = %q, want %q", err.Error(), want)
 	}
 }
 
